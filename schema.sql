@@ -301,7 +301,8 @@ CREATE TABLE player_saga_stack (
     recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_player_saga_stack_char_recorded ON player_saga_stack (character_id, recorded_at);\n-- ============================================================================
+CREATE INDEX idx_player_saga_stack_char_recorded ON player_saga_stack (character_id, recorded_at);
+-- ============================================================================
 -- 8. HYBRID VECTOR LORE INFRASTRUCTURE
 -- ============================================================================
 
@@ -430,7 +431,8 @@ BEGIN
         CREATE INDEX IF NOT EXISTS idx_world_lore_faction ON vectorized_world_lore (target_faction);
     END IF;
 END;
-$$;\n
+$$;
+
 
 -- ============================================================================
 -- SEED DATA FOR REGISTRIES (FACTIONS, FLORA, FAUNA)

@@ -1580,7 +1580,7 @@ class PlanetaryBuilderDashboardApp(App):
             del_btn.bind(on_release=on_delete)
             
         def on_fetch_success(dt, data):
-            popup_layout.remove_widget(loading_lbl)
+            popup_layout.clear_widgets()
             
             headers = BoxLayout(orientation='horizontal', size_hint_y=None, height=20, spacing=2)
             headers.add_widget(Label(text="Scientific Name", size_hint_x=0.18, bold=True, font_size='11sp'))
@@ -1592,11 +1592,11 @@ class PlanetaryBuilderDashboardApp(App):
             headers.add_widget(Label(text="Growth Mod", size_hint_x=0.10, bold=True, font_size='11sp'))
             headers.add_widget(Label(text="", size_hint_x=0.08))
             
-            popup_layout.insert_widget(0, headers)
+            popup_layout.add_widget(headers)
             
             scroll_view = ScrollView(size_hint=(1.0, 0.75))
             scroll_view.add_widget(rows_layout)
-            popup_layout.insert_widget(1, scroll_view)
+            popup_layout.add_widget(scroll_view)
             
             for item in data:
                 add_flora_row(
@@ -1613,8 +1613,9 @@ class PlanetaryBuilderDashboardApp(App):
             def on_add_press(b):
                 add_flora_row()
             add_btn.bind(on_release=on_add_press)
-            popup_layout.insert_widget(2, add_btn)
+            popup_layout.add_widget(add_btn)
             
+            popup_layout.add_widget(btn_layout)
             save_btn.disabled = False
             
         def on_fetch_failed(dt, err_msg):
@@ -1743,7 +1744,7 @@ class PlanetaryBuilderDashboardApp(App):
             del_btn.bind(on_release=on_delete)
             
         def on_fetch_success(dt, data):
-            popup_layout.remove_widget(loading_lbl)
+            popup_layout.clear_widgets()
             
             headers = BoxLayout(orientation='horizontal', size_hint_y=None, height=20, spacing=2)
             headers.add_widget(Label(text="Scientific Name", size_hint_x=0.25, bold=True, font_size='11sp'))
@@ -1753,11 +1754,11 @@ class PlanetaryBuilderDashboardApp(App):
             headers.add_widget(Label(text="Reprod Rate", size_hint_x=0.12, bold=True, font_size='11sp'))
             headers.add_widget(Label(text="", size_hint_x=0.08))
             
-            popup_layout.insert_widget(0, headers)
+            popup_layout.add_widget(headers)
             
             scroll_view = ScrollView(size_hint=(1.0, 0.75))
             scroll_view.add_widget(rows_layout)
-            popup_layout.insert_widget(1, scroll_view)
+            popup_layout.add_widget(scroll_view)
             
             for item in data:
                 add_fauna_row(
@@ -1772,8 +1773,9 @@ class PlanetaryBuilderDashboardApp(App):
             def on_add_press(b):
                 add_fauna_row()
             add_btn.bind(on_release=on_add_press)
-            popup_layout.insert_widget(2, add_btn)
+            popup_layout.add_widget(add_btn)
             
+            popup_layout.add_widget(btn_layout)
             save_btn.disabled = False
             
         def on_fetch_failed(dt, err_msg):
@@ -1895,7 +1897,7 @@ class PlanetaryBuilderDashboardApp(App):
             del_btn.bind(on_release=on_delete)
             
         def on_fetch_success(dt, data):
-            popup_layout.remove_widget(loading_lbl)
+            popup_layout.clear_widgets()
             
             headers = BoxLayout(orientation='horizontal', size_hint_y=None, height=20, spacing=2)
             headers.add_widget(Label(text="Faction Name (starts with #)", size_hint_x=0.40, bold=True, font_size='11sp'))
@@ -1903,11 +1905,11 @@ class PlanetaryBuilderDashboardApp(App):
             headers.add_widget(Label(text="Reputation Baseline", size_hint_x=0.20, bold=True, font_size='11sp'))
             headers.add_widget(Label(text="", size_hint_x=0.08))
             
-            popup_layout.insert_widget(0, headers)
+            popup_layout.add_widget(headers)
             
             scroll_view = ScrollView(size_hint=(1.0, 0.75))
             scroll_view.add_widget(rows_layout)
-            popup_layout.insert_widget(1, scroll_view)
+            popup_layout.add_widget(scroll_view)
             
             for item in data:
                 add_faction_row(
@@ -1920,8 +1922,9 @@ class PlanetaryBuilderDashboardApp(App):
             def on_add_press(b):
                 add_faction_row()
             add_btn.bind(on_release=on_add_press)
-            popup_layout.insert_widget(2, add_btn)
+            popup_layout.add_widget(add_btn)
             
+            popup_layout.add_widget(btn_layout)
             save_btn.disabled = False
             
         def on_fetch_failed(dt, err_msg):
