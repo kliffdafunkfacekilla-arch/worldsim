@@ -1,0 +1,26 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Backups and temporary files
+*.bak
+*~
+*.swp
+*.tmp
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Editor configurations
+.vscode/
+.idea/
+.project
+.pydevproject
+
+# Internal tool logs and temporary outputs
+.system_generated/
+*.log
