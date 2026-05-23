@@ -44,7 +44,7 @@ class NestedPlanetaryCoordinateEngine:
         self.Sy = sy
         self.Tx = tx
         self.Ty = ty
- 
+  
     def get_planetary_coords(self):
         px = (self.Cx * 30 + self.Rx) % 300
         py = (self.Cy * 30 + self.Ry) % 300
@@ -152,7 +152,6 @@ class SimulationCanvas(Widget):
         self.coord_engine = coord_engine
         self.shared_data = shared_data
         self.data_lock = data_lock
-        self.elevation_data = elevation_data
         self.bind(pos=self.redraw, size=self.redraw)
 
     def redraw(self, *args):
@@ -172,6 +171,9 @@ class SimulationCanvas(Widget):
                     cx = px + (col - 7)
                     cy = py + (row - 5)
                     
+                    x_pos = self.x + (col - (tile_x / 100.0)) * tile_w
+                    y_pos = self.y + (row - (tile_y / 100.0)) * tile_h
+                    
                     if 0 <= cx < 300 and 0 <= cy < 300:
                         cell_id = cy * 300 + cx + 1
                         
@@ -180,42 +182,64 @@ class SimulationCanvas(Widget):
                             if cell_id in self.shared_data["cache"]:
                                 active_tag = self.shared_data["cache"][cell_id].get("active_chaos_tag")
                         
-                        if active_tag and "#Epicenter" in active_tag:
-                            Color(0.7, 0.1, 0.1, 1.0)
-                        elif active_tag and "#Flux" in active_tag:
-                            Color(0.0, 0.8, 0.8, 1.0)
-                        elif active_tag and "#Vita" in active_tag:
-                            Color(0.1, 0.9, 0.1, 1.0)
+                        # Determine biome dynamically
+                        app = App.get_running_app()
+                        elev = 500.0
+                        temp = 15.0
+                        moist = 0.5
+                        if app:
+                            try:
+                                elev = app.elevation_data[cx][cy]
+                                temp = app.temperature_data[cx][cy]
+                                moist = app.moisture_data[cx][cy]
+                            except IndexError:
+                                pass
+                        
+                        biome = app.classify_biome(elev, temp, moist) if app else "Grasslands"
+                        tile_image = app.get_tile_variant(biome, cx, cy) if app else None
+                        
+                        if active_tag and any(tag in active_tag for tag in ["#Mass", "#Flux", "#Omen", "#Epicenter", "#Vita"]):
+                            # Shift the color tint on existing tiles to a purple, pink, or red color
+                            if "#Flux" in active_tag:
+                                Color(0.8, 0.2, 1.0, 1.0)  # Purple
+                            elif "#Vita" in active_tag:
+                                Color(1.0, 0.4, 0.8, 1.0)  # Pink
+                            else:  # #Mass, #Epicenter, #Omen, etc.
+                                Color(1.0, 0.2, 0.2, 1.0)  # Red
                         else:
-                            elev = 500.0
-                            if self.elevation_data:
-                                try:
-                                    elev = self.elevation_data[cx][cy]
-                                except IndexError:
-                                    pass
-                            
-                            if elev < 0.0:
-                                Color(0.1, 0.3, 0.8, 1.0)
-                            elif elev > 2000.0:
-                                Color(0.5, 0.5, 0.5, 1.0)
+                            if tile_image:
+                                Color(1.0, 1.0, 1.0, 1.0)  # full colors (remove Color(r,g,b,a) call for base terrain)
                             else:
-                                Color(0.15, 0.55, 0.15, 1.0)
+                                if biome == "ocean":
+                                    Color(0.1, 0.3, 0.8, 1.0)
+                                elif biome == "coast":
+                                    Color(0.2, 0.5, 0.9, 1.0)
+                                elif biome == "mountain":
+                                    Color(0.5, 0.5, 0.5, 1.0)
+                                elif biome == "tundra":
+                                    Color(0.85, 0.85, 0.9, 1.0)
+                                elif biome == "desert":
+                                    Color(0.85, 0.75, 0.45, 1.0)
+                                elif biome == "forest":
+                                    Color(0.05, 0.4, 0.05, 1.0)
+                                else:
+                                    Color(0.15, 0.55, 0.15, 1.0)
+                        
+                        if tile_image:
+                            Rectangle(pos=(x_pos + 1, y_pos + 1), size=(tile_w - 2, tile_h - 2), source=tile_image)
+                        else:
+                            Rectangle(pos=(x_pos + 1, y_pos + 1), size=(tile_w - 2, tile_h - 2))
                     else:
                         Color(0.05, 0.05, 0.08, 1.0)
-                        
-                    # Using 100 tiles per screen for scrolling offset
-                    x_pos = self.x + (col - (tile_x / 100.0)) * tile_w
-                    y_pos = self.y + (row - (tile_y / 100.0)) * tile_h
-                    
-                    Rectangle(pos=(x_pos + 1, y_pos + 1), size=(tile_w - 2, tile_h - 2))
+                        Rectangle(pos=(x_pos + 1, y_pos + 1), size=(tile_w - 2, tile_h - 2))
             
             gold_x = self.x + 7.5 * tile_w
             gold_y = self.y + 5.5 * tile_h
             
-            Color(1.0, 0.84, 0.0, 1.0)
-            Rectangle(pos=(gold_x - tile_w * 0.15, gold_y - tile_h * 0.15), size=(tile_w * 0.3, tile_h * 0.3))
+            # Player coordinate indicator rendered last (highest Z-index) using player_sprite.png
             Color(1.0, 1.0, 1.0, 1.0)
-            Rectangle(pos=(gold_x - tile_w * 0.05, gold_y - tile_h * 0.05), size=(tile_w * 0.1, tile_h * 0.1))
+            player_sprite_path = os.path.abspath(os.path.join("assets", "sprites", "player_sprite.png"))
+            Rectangle(pos=(gold_x - tile_w * 0.15, gold_y - tile_h * 0.15), size=(tile_w * 0.3, tile_h * 0.3), source=player_sprite_path)
 
 
 class HUDPanel(BoxLayout):
@@ -495,6 +519,19 @@ class SimulationClientApp(App):
         self.max_composure = 11
         self.max_focus = 10
         
+        # Load tile variants
+        BIOMES = ["Grasslands", "Interior_floors", "coast", "desert", "forest", "mountain", "ocean", "tundra"]
+        self.biome_tiles = {}
+        for b in BIOMES:
+            b_path = os.path.join("assets", "tiles", b)
+            if os.path.isdir(b_path):
+                self.biome_tiles[b] = [
+                    os.path.join(b_path, f) for f in os.listdir(b_path)
+                    if f.lower().endswith((".png", ".jpg", ".jpeg"))
+                ]
+            else:
+                self.biome_tiles[b] = []
+        
         try:
             r = requests.post(f"{SERVER_URL}/api/player/get-or-create", timeout=4.0)
             if r.status_code == 200:
@@ -530,6 +567,8 @@ class SimulationClientApp(App):
         }
         
         self.elevation_data = [[0.0 for _ in range(300)] for _ in range(300)]
+        self.temperature_data = [[15.0 for _ in range(300)] for _ in range(300)]
+        self.moisture_data = [[0.5 for _ in range(300)] for _ in range(300)]
         self.crust_mesh_loaded = False
         self.is_fetching = False
         
@@ -560,6 +599,29 @@ class SimulationClientApp(App):
         Clock.schedule_interval(self.update_ui, 1.0 / 60.0)
         
         return root_layout
+
+    def classify_biome(self, elevation, temp, moisture):
+        if elevation < -50.0:
+            return "ocean"
+        elif elevation < 0.0:
+            return "coast"
+        elif elevation > 1800.0:
+            return "mountain"
+        else:
+            if temp < 2.0:
+                return "tundra"
+            if moisture < 0.25 or (moisture < 0.5 and temp > 25.0):
+                return "desert"
+            if moisture >= 0.55:
+                return "forest"
+            return "Grasslands"
+
+    def get_tile_variant(self, biome, cx, cy):
+        variants = self.biome_tiles.get(biome, [])
+        if not variants:
+            return None
+        idx = (cx * 17 + cy * 31) % len(variants)
+        return os.path.abspath(variants[idx])
 
     def trigger_server_api_handshake(self):
         """
@@ -612,15 +674,23 @@ class SimulationClientApp(App):
             if r.status_code == 200:
                 data = r.json()
                 temp_elev = [[0.0 for _ in range(300)] for _ in range(300)]
+                temp_temp = [[15.0 for _ in range(300)] for _ in range(300)]
+                temp_moist = [[0.5 for _ in range(300)] for _ in range(300)]
                 for cell in data:
                     cx = cell["coord_x"]
                     cy = cell["coord_y"]
                     elev = cell["elevation_meters"]
+                    temp = cell["temperature_celsius"]
+                    moist = cell["moisture_index"]
                     if 0 <= cx < 300 and 0 <= cy < 300:
                         temp_elev[cx][cy] = elev
+                        temp_temp[cx][cy] = temp
+                        temp_moist[cx][cy] = moist
                 
                 with self.data_lock:
                     self.elevation_data[:] = temp_elev
+                    self.temperature_data[:] = temp_temp
+                    self.moisture_data[:] = temp_moist
                     self.crust_mesh_loaded = True
                 print("World crust mesh cached successfully.")
         except Exception as e:
@@ -698,7 +768,6 @@ class SimulationClientApp(App):
             return True
             
         if dx != 0 or dy != 0:
-            # Enforce exact variable-tier nested boundary limits and trigger callback asynchronously on Screen change
             moved = self.coord_engine.update_player_movement(
                 dx, dy,
                 trigger_handshake_callback=self.trigger_server_api_handshake

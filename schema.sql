@@ -301,4 +301,205 @@ CREATE TABLE player_saga_stack (
     recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_player_saga_stack_char_recorded ON player_saga_stack (character_id, recorded_at);
+CREATE INDEX idx_player_saga_stack_char_recorded ON player_saga_stack (character_id, recorded_at);\n-- ============================================================================
+-- 8. HYBRID VECTOR LORE INFRASTRUCTURE
+-- ============================================================================
+
+-- Try to create the vector extension
+DO $$
+BEGIN
+    CREATE EXTENSION IF NOT EXISTS vector;
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE NOTICE 'pgvector extension not available, setting up custom array-based operator fallback.';
+END;
+$$;
+
+-- Conditional table and index setup based on pgvector existence
+DO $$
+DECLARE
+    vector_type_exists BOOLEAN;
+BEGIN
+    SELECT EXISTS (
+        SELECT 1 FROM pg_type WHERE typname = 'vector'
+    ) INTO vector_type_exists;
+
+    -- Drop old ledger table if it exists to clean up column changes
+    DROP TABLE IF EXISTS campaign_lore_ledger CASCADE;
+    DROP TABLE IF EXISTS vectorized_world_lore CASCADE;
+
+    IF vector_type_exists THEN
+        -- Create table with vector type
+        EXECUTE '
+        CREATE TABLE campaign_lore_ledger (
+            ledger_id SERIAL PRIMARY KEY,
+            associated_cell_id BIGINT REFERENCES global_simulation_cells(cell_id) ON DELETE CASCADE,
+            faction_tag VARCHAR(100) NOT NULL,
+            raw_history_summary TEXT NOT NULL,
+            semantic_lore_embedding vector(1536) NOT NULL,
+            recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );';
+        
+        EXECUTE '
+        CREATE TABLE vectorized_world_lore (
+            lore_id SERIAL PRIMARY KEY,
+            source_file_name VARCHAR(255) NOT NULL,
+            target_faction VARCHAR(100) NOT NULL,
+            geographic_tags VARCHAR(100)[] NOT NULL,
+            raw_lore_text TEXT NOT NULL,
+            lore_embedding vector(1536) NOT NULL,
+            recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );';
+        
+        -- Create HNSW indices
+        EXECUTE 'CREATE INDEX IF NOT EXISTS idx_lore_ledger_hnsw ON campaign_lore_ledger USING hnsw (semantic_lore_embedding vector_cosine_ops);';
+        EXECUTE 'CREATE INDEX IF NOT EXISTS idx_world_lore_hnsw ON vectorized_world_lore USING hnsw (lore_embedding vector_cosine_ops);';
+    ELSE
+        -- Create custom functions for REAL[] fallback
+        CREATE OR REPLACE FUNCTION cosine_similarity(a REAL[], b REAL[])
+        RETURNS REAL AS $body$
+        DECLARE
+            dot_product REAL := 0;
+            norm_a REAL := 0;
+            norm_b REAL := 0;
+            i INT;
+        BEGIN
+            IF array_length(a, 1) IS NULL OR array_length(b, 1) IS NULL THEN
+                RETURN 0;
+            END IF;
+            IF array_length(a, 1) != array_length(b, 1) THEN
+                RETURN 0;
+            END IF;
+            FOR i IN 1..array_length(a, 1) LOOP
+                dot_product := dot_product + (a[i] * b[i]);
+                norm_a := norm_a + (a[i] * a[i]);
+                norm_b := norm_b + (b[i] * b[i]);
+            END LOOP;
+            IF norm_a = 0 OR norm_b = 0 THEN
+                RETURN 0;
+            END IF;
+            RETURN dot_product / (sqrt(norm_a) * sqrt(norm_b));
+        END;
+        $body$ LANGUAGE plpgsql IMMUTABLE;
+
+        CREATE OR REPLACE FUNCTION cosine_distance(a REAL[], b REAL[])
+        RETURNS REAL AS $body$
+        BEGIN
+            RETURN 1.0 - cosine_similarity(a, b);
+        END;
+        $body$ LANGUAGE plpgsql IMMUTABLE;
+
+        -- Create operator if not exists
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_operator 
+            WHERE oprname = '<=>' 
+              AND oprleft = 'real[]'::regtype 
+              AND oprright = 'real[]'::regtype
+        ) THEN
+            CREATE OPERATOR <=> (
+                leftarg = REAL[],
+                rightarg = REAL[],
+                procedure = cosine_distance
+            );
+        END IF;
+
+        -- Create table with REAL[] type fallback
+        EXECUTE '
+        CREATE TABLE campaign_lore_ledger (
+            ledger_id SERIAL PRIMARY KEY,
+            associated_cell_id BIGINT REFERENCES global_simulation_cells(cell_id) ON DELETE CASCADE,
+            faction_tag VARCHAR(100) NOT NULL,
+            raw_history_summary TEXT NOT NULL,
+            semantic_lore_embedding REAL[] NOT NULL,
+            recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );';
+
+        EXECUTE '
+        CREATE TABLE vectorized_world_lore (
+            lore_id SERIAL PRIMARY KEY,
+            source_file_name VARCHAR(255) NOT NULL,
+            target_faction VARCHAR(100) NOT NULL,
+            geographic_tags VARCHAR(100)[] NOT NULL,
+            raw_lore_text TEXT NOT NULL,
+            lore_embedding REAL[] NOT NULL,
+            recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );';
+
+        -- Standard indices for fallback columns
+        CREATE INDEX IF NOT EXISTS idx_lore_ledger_cell_id ON campaign_lore_ledger (associated_cell_id);
+        CREATE INDEX IF NOT EXISTS idx_world_lore_faction ON vectorized_world_lore (target_faction);
+    END IF;
+END;
+$$;\n
+
+-- ============================================================================
+-- SEED DATA FOR REGISTRIES (FACTIONS, FLORA, FAUNA)
+-- ============================================================================
+
+-- Seed Faction Registry with Core and Unique Lore Factions
+INSERT INTO registry_factions (faction_name, ideology_type, reputation_baseline) VALUES
+('#GorgonHorde', 'Expansionist', 0),
+('#CinderClaw', 'Survivalist', 0),
+('#IronClan', 'Industrialist', 0),
+('#Independent', 'Neutral', 0),
+('#GreyWardens', 'Vigilant Guardians', 50),
+('#CrimsonCorsairs', 'Rebellion Sky-Pirates', -30),
+('#CloudHarriers', 'Aerostatic Raiders', -20),
+('#OrderOfClockwork', 'Determined Bureaucrats', 30),
+('#Hearthless', 'Planar Outcasts', -10),
+('#CanalKrewes', 'Urban Trade Cartel', 15)
+ON CONFLICT (faction_name) DO UPDATE SET
+  ideology_type = EXCLUDED.ideology_type,
+  reputation_baseline = EXCLUDED.reputation_baseline;
+
+-- Seed Flora Registry with Generic and Unique Lore Plants
+INSERT INTO registry_flora (scientific_name, common_name, temp_preference_min, temp_preference_max, moisture_preference_min, moisture_preference_max, growth_rate_modifier) VALUES
+('ryegrass', 'Steppe Ryegrass', 5.00, 30.00, 0.200, 0.600, 1.00),
+('broadleaf_oak', 'Broadleaf Oak', 10.00, 25.00, 0.350, 0.750, 1.00),
+('pine', 'Boreal Pine', -15.00, 15.00, 0.200, 0.600, 0.80),
+('alpine_moss', 'Alpine Moss', -25.00, 5.00, 0.100, 0.500, 0.50),
+('saguaro_cactus', 'Saguaro Cactus', 15.00, 45.00, 0.000, 0.150, 0.60),
+('rainforest_fern', 'Rainforest Fern', 18.00, 35.00, 0.700, 1.000, 1.30),
+('mangrove', 'Bayou Mangrove', 15.00, 30.00, 0.650, 0.950, 1.10),
+('aether_root', 'Aetheric Root Glow', 5.00, 25.00, 0.300, 0.800, 1.20),
+('cinder_bloom', 'Ashen Cinder Bloom', 20.00, 50.00, 0.050, 0.300, 0.75),
+('medicinal_herb', 'Sanative Sage', 8.00, 28.00, 0.250, 0.650, 1.00),
+('dragonstone_vine', 'Dragonstone Vine', 12.00, 32.00, 0.300, 0.700, 1.10),
+('silver_leaf', 'Scholarly Silver Leaf', 10.00, 22.00, 0.400, 0.700, 0.90),
+('jolt_berry', 'Voltaic Jolt Berry', 10.00, 30.00, 0.300, 0.800, 1.15),
+('ozone_flower', 'High-Altitude Ozone Flower', -10.00, 20.00, 0.200, 0.600, 1.05)
+ON CONFLICT (scientific_name) DO UPDATE SET
+  common_name = EXCLUDED.common_name,
+  temp_preference_min = EXCLUDED.temp_preference_min,
+  temp_preference_max = EXCLUDED.temp_preference_max,
+  moisture_preference_min = EXCLUDED.moisture_preference_min,
+  moisture_preference_max = EXCLUDED.moisture_preference_max,
+  growth_rate_modifier = EXCLUDED.growth_rate_modifier;
+
+-- Seed Fauna Registry with Generic and Unique Lore Wildlife
+INSERT INTO registry_fauna (scientific_name, common_name, dietary_classification, base_pack_size, reproduction_rate) VALUES
+('steppe_gazelle', 'Steppe Gazelle', 'Herbivore', 12, 1.10),
+('red_deer', 'Stately Red Deer', 'Herbivore', 8, 0.90),
+('boreal_elk', 'Boreal Elk', 'Herbivore', 6, 0.80),
+('mountain_goat', 'Alpine Mountain Goat', 'Herbivore', 4, 0.70),
+('desert_viper', 'Arid Desert Viper', 'Carnivore', 1, 1.20),
+('tree_frog', 'Emerald Tree Frog', 'Insectivore', 25, 2.10),
+('reef_fish', 'Coastal Reef Fish', 'Omnivore', 50, 2.50),
+('abyssal_eel', 'Abyssal Deep Eel', 'Carnivore', 2, 0.50),
+('polar_bear', 'Arctic Polar Bear', 'Carnivore', 1, 0.30),
+('lynx', 'Boreal Lynx', 'Carnivore', 2, 0.60),
+('red_fox', 'Sly Red Fox', 'Omnivore', 2, 1.15),
+('jaguar', 'Jungle Jaguar', 'Carnivore', 1, 0.45),
+('swamp_leech', 'Bloody Swamp Leech', 'Carnivore', 100, 3.50),
+('caiman', 'Estuary Caiman', 'Carnivore', 3, 0.75),
+('dragonstone_wasp', 'Swarming Magitech Wasp', 'Insectivore', 30, 2.00),
+('cloud_harrier', 'Aerostatic Cloud Harrier', 'Carnivore', 4, 0.70),
+('seahorse_courier', 'Trained Seahorse Courier', 'Herbivore', 3, 1.00),
+('spring_ghost', 'Spectral Spring Ghost', 'Detritivore', 1, 0.20),
+('voltaic_sheep', 'Static Fleece Sheep', 'Herbivore', 10, 1.00),
+('wind_hawk', 'Shattered Peak Wind Hawk', 'Carnivore', 2, 0.85)
+ON CONFLICT (scientific_name) DO UPDATE SET
+  common_name = EXCLUDED.common_name,
+  dietary_classification = EXCLUDED.dietary_classification,
+  base_pack_size = EXCLUDED.base_pack_size,
+  reproduction_rate = EXCLUDED.reproduction_rate;

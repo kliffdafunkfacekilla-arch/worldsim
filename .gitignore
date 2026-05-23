@@ -24,3 +24,6 @@ env/
 # Internal tool logs and temporary outputs
 .system_generated/
 *.log
+
+# Raw generation/slicing assets
+assets/tiles/tiles/

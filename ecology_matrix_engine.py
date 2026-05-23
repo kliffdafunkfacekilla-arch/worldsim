@@ -22,6 +22,19 @@ class EcologicalMatrixEngine:
         All steps are run within database transactions for integrity.
         """
         logger.info("Connecting to database to run ecological cycle...")
+        
+        # Load flora_base_growth_rate from config.json
+        flora_base_growth_rate = 1.0
+        config_path = "config.json"
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    cfg = json.load(f)
+                    flora_base_growth_rate = cfg.get("flora_base_growth_rate", 1.0)
+                logger.info(f"Loaded flora_base_growth_rate from config.json: {flora_base_growth_rate}")
+            except Exception as e:
+                logger.error(f"Failed to load config.json in EcologicalMatrixEngine: {e}")
+        
         conn = await asyncpg.connect(self.db_url)
         try:
             # Step 1 & 2: Flora Regeneration, Fauna Consumption & Mutation in a single transaction
@@ -40,18 +53,21 @@ class EcologicalMatrixEngine:
                                 WHEN elevation_meters < 0.0 THEN 0.0
                                 ELSE 
                                     COALESCE((flora_biomass_data->>'biomass_volume')::float, (flora_biomass_data->>'biomass_index')::float * 100.0) +
-                                    CASE 
-                                        WHEN active_chaos_tag IN ('#Vita', '#Epicenter_#Vita') THEN 
-                                            (GREATEST(0.0, moisture_index::float * (temperature_celsius::float + 15.0) * 0.1) * 10.0) + 15.0
-                                        WHEN active_chaos_tag IN ('#Mass', '#Epicenter_#Mass') THEN 
-                                            GREATEST(0.0, moisture_index::float * (temperature_celsius::float + 15.0) * 0.1) * 0.05
-                                        ELSE 
-                                            GREATEST(0.0, moisture_index::float * (temperature_celsius::float + 15.0) * 0.1)
-                                    END
+                                    (
+                                        CASE 
+                                            WHEN active_chaos_tag IN ('#Vita', '#Epicenter_#Vita') THEN 
+                                                (GREATEST(0.0, moisture_index::float * (temperature_celsius::float + 15.0) * 0.1) * 10.0) + 15.0
+                                            WHEN active_chaos_tag IN ('#Mass', '#Epicenter_#Mass') THEN 
+                                                GREATEST(0.0, moisture_index::float * (temperature_celsius::float + 15.0) * 0.1) * 0.05
+                                            ELSE 
+                                                GREATEST(0.0, moisture_index::float * (temperature_celsius::float + 15.0) * 0.1)
+                                        END
+                                    ) * $1
                             END
                         )))
                     );
-                    """
+                    """,
+                    flora_base_growth_rate
                 )
 
                 logger.info("Executing Step 2: Fauna Consumption & Mutation...")

@@ -3,7 +3,9 @@ import json
 import logging
 from uuid import UUID
 from typing import Dict, List, Any, Optional
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 import asyncpg
 
@@ -57,6 +59,124 @@ async def startup_event():
                 """
             )
             logger.info("Database migrations for player_characters completed.")
+            # 3. Create campaign_lore_ledger and vectorized_world_lore dynamically, handling pgvector or fallback
+            await conn.execute(
+                """
+                DO $$
+                DECLARE
+                    vector_type_exists BOOLEAN;
+                    old_table_exists BOOLEAN;
+                BEGIN
+                    SELECT EXISTS (
+                        SELECT 1 FROM pg_type WHERE typname = 'vector'
+                    ) INTO vector_type_exists;
+
+                    SELECT EXISTS (
+                        SELECT 1 
+                        FROM information_schema.columns 
+                        WHERE table_name = 'campaign_lore_ledger' AND column_name = 'paragon_name'
+                    ) INTO old_table_exists;
+
+                    IF old_table_exists THEN
+                        DROP TABLE IF EXISTS campaign_lore_ledger CASCADE;
+                    END IF;
+
+                    IF vector_type_exists THEN
+                        CREATE TABLE IF NOT EXISTS campaign_lore_ledger (
+                            ledger_id SERIAL PRIMARY KEY,
+                            associated_cell_id BIGINT REFERENCES global_simulation_cells(cell_id) ON DELETE CASCADE,
+                            faction_tag VARCHAR(100) NOT NULL,
+                            raw_history_summary TEXT NOT NULL,
+                            semantic_lore_embedding vector(1536) NOT NULL,
+                            recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                        );
+                        
+                        CREATE TABLE IF NOT EXISTS vectorized_world_lore (
+                            lore_id SERIAL PRIMARY KEY,
+                            source_file_name VARCHAR(255) NOT NULL,
+                            target_faction VARCHAR(100) NOT NULL,
+                            geographic_tags VARCHAR(100)[] NOT NULL,
+                            raw_lore_text TEXT NOT NULL,
+                            lore_embedding vector(1536) NOT NULL,
+                            recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                        );
+                        
+                        CREATE INDEX IF NOT EXISTS idx_lore_ledger_hnsw ON campaign_lore_ledger USING hnsw (semantic_lore_embedding vector_cosine_ops);
+                        CREATE INDEX IF NOT EXISTS idx_world_lore_hnsw ON vectorized_world_lore USING hnsw (lore_embedding vector_cosine_ops);
+                    ELSE
+                        CREATE OR REPLACE FUNCTION cosine_similarity(a REAL[], b REAL[])
+                        RETURNS REAL AS $body$
+                        DECLARE
+                            dot_product REAL := 0;
+                            norm_a REAL := 0;
+                            norm_b REAL := 0;
+                            i INT;
+                        BEGIN
+                            IF array_length(a, 1) IS NULL OR array_length(b, 1) IS NULL THEN
+                                RETURN 0;
+                            END IF;
+                            IF array_length(a, 1) != array_length(b, 1) THEN
+                                RETURN 0;
+                            END IF;
+                            FOR i IN 1..array_length(a, 1) LOOP
+                                dot_product := dot_product + (a[i] * b[i]);
+                                norm_a := norm_a + (a[i] * a[i]);
+                                norm_b := norm_b + (b[i] * b[i]);
+                            END LOOP;
+                            IF norm_a = 0 OR norm_b = 0 THEN
+                                RETURN 0;
+                            END IF;
+                            RETURN dot_product / (sqrt(norm_a) * sqrt(norm_b));
+                        END;
+                        $body$ LANGUAGE plpgsql IMMUTABLE;
+
+                        CREATE OR REPLACE FUNCTION cosine_distance(a REAL[], b REAL[])
+                        RETURNS REAL AS $body$
+                        BEGIN
+                            RETURN 1.0 - cosine_similarity(a, b);
+                        END;
+                        $body$ LANGUAGE plpgsql IMMUTABLE;
+
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_operator 
+                            WHERE oprname = '<=>' 
+                              AND oprleft = 'real[]'::regtype 
+                              AND oprright = 'real[]'::regtype
+                        ) THEN
+                            CREATE OPERATOR <=> (
+                                leftarg = REAL[],
+                                rightarg = REAL[],
+                                procedure = cosine_distance
+                            );
+                        END IF;
+
+                        CREATE TABLE IF NOT EXISTS campaign_lore_ledger (
+                            ledger_id SERIAL PRIMARY KEY,
+                            associated_cell_id BIGINT REFERENCES global_simulation_cells(cell_id) ON DELETE CASCADE,
+                            faction_tag VARCHAR(100) NOT NULL,
+                            raw_history_summary TEXT NOT NULL,
+                            semantic_lore_embedding REAL[] NOT NULL,
+                            recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                        );
+
+                        CREATE TABLE IF NOT EXISTS vectorized_world_lore (
+                            lore_id SERIAL PRIMARY KEY,
+                            source_file_name VARCHAR(255) NOT NULL,
+                            target_faction VARCHAR(100) NOT NULL,
+                            geographic_tags VARCHAR(100)[] NOT NULL,
+                            raw_lore_text TEXT NOT NULL,
+                            lore_embedding REAL[] NOT NULL,
+                            recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                        );
+
+                        CREATE INDEX IF NOT EXISTS idx_lore_ledger_cell_id ON campaign_lore_ledger (associated_cell_id);
+                        CREATE INDEX IF NOT EXISTS idx_world_lore_faction ON vectorized_world_lore (target_faction);
+                    END IF;
+                END;
+                $$;
+                """
+            )
+            logger.info("Database migrations for hybrid vector lore tables completed.")
 
             # 2. Ensure player_saga_stack table exists
             await conn.execute(
@@ -81,8 +201,71 @@ async def startup_event():
         logger.error(f"Failed to create database connection pool: {e}")
         raise e
 
+    # Load config.json on startup
+    config_path = "config.json"
+    default_config = {
+        "time_scale_multiplier": 8,
+        "fauna_base_reproduction_rate": 2.5,
+        "mutation_threshold": 85.0,
+        "flora_base_growth_rate": 1.0,
+        "economy_and_production_registry": {
+            "Medicine": {"requires_tag": "#MedicinalHerb", "unlocked_at_tier": "Town"},
+            "Steel": {"requires_tag": "#IronDeposit", "unlocked_at_tier": "City"},
+            "AetherFuel": {"requires_tag": "#AetherCrystal", "unlocked_at_tier": "Metropolis"},
+            "Lumber": {"requires_tag": "#BorealPine", "unlocked_at_tier": "Hamlet"},
+            "Oakwood": {"requires_tag": "#BroadleafOak", "unlocked_at_tier": "Hamlet"},
+            "CactusFiber": {"requires_tag": "#SaguaroCactus", "unlocked_at_tier": "Hamlet"},
+            "FernExtract": {"requires_tag": "#RainforestFern", "unlocked_at_tier": "Hamlet"},
+            "MangroveSap": {"requires_tag": "#BayouMangrove", "unlocked_at_tier": "Hamlet"},
+            "AetherElixir": {"requires_tag": "#AethericRootGlow", "unlocked_at_tier": "Town"},
+            "AshenPowder": {"requires_tag": "#AshenCinderBloom", "unlocked_at_tier": "Town"},
+            "DragonGlass": {"requires_tag": "#DragonstoneVine", "unlocked_at_tier": "City"},
+            "SilverInk": {"requires_tag": "#ScholarlySilverLeaf", "unlocked_at_tier": "Town"},
+            "JoltBattery": {"requires_tag": "#VoltaicJoltBerry", "unlocked_at_tier": "City"},
+            "OzoneCatalyst": {"requires_tag": "#HighAltitudeOzoneFlower", "unlocked_at_tier": "Metropolis"},
+            "ElkMeat": {"requires_tag": "#BorealElk", "unlocked_at_tier": "Hamlet"},
+            "FoxPelt": {"requires_tag": "#SlyRedFox", "unlocked_at_tier": "Hamlet"},
+            "StaticWool": {"requires_tag": "#StaticFleeceSheep", "unlocked_at_tier": "Town"},
+            "SkyPirateGuns": {"requires_tag": "#AerostaticCloudHarrier", "unlocked_at_tier": "City"},
+            "ClockworkGear": {"requires_tag": "#DeterminedBureaucrats", "unlocked_at_tier": "Town"}
+        },
+        "paragon_psychology_pool": {
+            "names": ["Viceroy Roderick", "Captain Steelclad", "Eldest Ignis", "General Vraka", "Archon Aurelius", "Inquisitor Malakai"],
+            "traits": ["calculating", "greedy", "dutiful", "vigilant", "narcissistic", "zealot", "ambitious"],
+            "personal_goals": ["Maintain stability", "Expand treasury", "Defend boundaries", "Purge heresy", "Amass wealth"]
+        }
+    }
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                loaded = json.load(f)
+            config = default_config.copy()
+            # Deep update of dictionary fields if needed, but simple update is fine.
+            # Let's merge economy_and_production_registry and paragon_psychology_pool if present.
+            for k, v in loaded.items():
+                if isinstance(v, dict) and k in config and isinstance(config[k], dict):
+                    config[k].update(v)
+                else:
+                    config[k] = v
+            app.state.config = config
+            logger.info(f"Loaded config.json: {app.state.config}")
+        except Exception as e:
+            logger.error(f"Failed to parse config.json: {e}")
+            app.state.config = default_config
+    else:
+        app.state.config = default_config
+    
+    # Launch ParagonAIDirector background task
+    from narrative_quest_engine import ParagonAIDirector
+    app.state.ai_director = ParagonAIDirector(app.state.db_pool, app.state.config)
+    await app.state.ai_director.start()
+    logger.info("ParagonAIDirector background task launched.")
+
 @app.on_event("shutdown")
 async def shutdown_event():
+    logger.info("Stopping Paragon AI Director...")
+    if hasattr(app.state, "ai_director") and app.state.ai_director:
+        await app.state.ai_director.stop()
     logger.info("Closing database connection pool...")
     if hasattr(app.state, "db_pool") and app.state.db_pool:
         await app.state.db_pool.close()
@@ -142,6 +325,45 @@ class ClashResolvePayload(BaseModel):
 class ChaosBurnPayload(BaseModel):
     character_id: UUID = Field(..., description="UUID of the character.")
     d100_roll: int = Field(..., ge=1, le=100, description="D100 roll for Channeling the Chaos.")
+
+class PaintCell(BaseModel):
+    x: int = Field(..., ge=0, lt=300)
+    y: int = Field(..., ge=0, lt=300)
+
+class BrushStrokePlacement(BaseModel):
+    cells: List[PaintCell] = Field(..., description="List of cell coordinates painted in this stroke.")
+    brush_name: str = Field(..., description="Name of the selected brush.")
+    elevation: Optional[float] = Field(None, description="Target elevation_meters if painting climate override.")
+    temperature: Optional[float] = Field(None, description="Target temperature_celsius if painting climate override.")
+    moisture: Optional[float] = Field(None, description="Target moisture_index if painting climate override.")
+    chaos_tag: Optional[str] = Field(None, description="Target active_chaos_tag if painting chaos path.")
+
+class SearchLorePayload(BaseModel):
+    query: str
+    faction_tag: str
+    associated_cell_id: int
+    limit: Optional[int] = 3
+
+class FloraItemPayload(BaseModel):
+    scientific_name: str
+    common_name: str
+    temp_preference_min: float
+    temp_preference_max: float
+    moisture_preference_min: float
+    moisture_preference_max: float
+    growth_rate_modifier: float
+
+class FaunaItemPayload(BaseModel):
+    scientific_name: str
+    common_name: str
+    dietary_classification: str
+    base_pack_size: int
+    reproduction_rate: float
+
+class FactionItemPayload(BaseModel):
+    faction_name: str
+    ideology_type: str
+    reputation_baseline: int
 
 # ============================================================================
 # API ENDPOINTS
@@ -547,7 +769,8 @@ async def update_player_pools(payload: PlayerPoolsUpdatePayload, pool: asyncpg.P
         new_mutations = list(payload.mutations) if payload.mutations is not None else list(curr_mutations)
         
         # Trigger Mutation Factor check
-        new_mutation = check_mutation(new_exposure, new_mutations)
+        threshold = getattr(app.state, "config", {}).get("mutation_threshold", 90.0)
+        new_mutation = check_mutation(new_exposure, new_mutations, threshold=threshold)
         if new_mutation:
             new_mutations.append(new_mutation)
             logger.info(f"MUTATION TRIGGERED: Character {payload.character_id} gained mutation: {new_mutation}")
@@ -695,7 +918,8 @@ async def execute_chaos_burn(payload: ChaosBurnPayload, pool: asyncpg.Pool = Dep
         new_mutations = list(curr_mutations)
         
         # Check for mutation
-        new_mutation = check_mutation(new_exposure, new_mutations)
+        threshold = getattr(app.state, "config", {}).get("mutation_threshold", 90.0)
+        new_mutation = check_mutation(new_exposure, new_mutations, threshold=threshold)
         if new_mutation:
             new_mutations.append(new_mutation)
             burn_result["new_mutation_triggered"] = new_mutation
@@ -722,6 +946,7 @@ async def get_crust_mesh(pool: asyncpg.Pool = Depends(get_db_pool)):
     """
     Returns the raw geographic data for all 90,000 cells of the world map.
     Optimized for high-speed retrieval and direct Kivy client rendering.
+    Enriched with cult_index to support web dashboard visualizations.
     """
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -732,7 +957,8 @@ async def get_crust_mesh(pool: asyncpg.Pool = Depends(get_db_pool)):
                 coord_y, 
                 elevation_meters::float AS elevation_meters, 
                 temperature_celsius::float AS temperature_celsius, 
-                moisture_index::float AS moisture_index 
+                moisture_index::float AS moisture_index,
+                (COALESCE(shadow_war_metrics->>'cult_infiltration_index', shadow_war_metrics->>'subversion', '0.0'))::float AS cult_index
             FROM global_simulation_cells
             ORDER BY cell_id;
             """
@@ -953,3 +1179,378 @@ async def record_saga_event(payload: SagaEventPayload, pool: asyncpg.Pool = Depe
                 status_code=400,
                 detail=f"Foreign key violation: Ensure the character_id '{payload.character_id}' exists in player_characters."
             )
+
+# ============================================================================
+# PLANETARY BUILDER ADMIN ENDPOINTS
+# ============================================================================
+
+@app.get("/api/builder/crust-mesh")
+async def get_builder_crust_mesh(pool: asyncpg.Pool = Depends(get_db_pool)):
+    """
+    Returns the complete climate AND active chaos tag data for all 90,000 cells.
+    Used by the Admin PlanetaryBuilderDashboard to render the entire grid and biomes accurately.
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT 
+                coord_x, 
+                coord_y, 
+                elevation_meters::float AS elevation_meters, 
+                temperature_celsius::float AS temperature_celsius, 
+                moisture_index::float AS moisture_index,
+                active_chaos_tag
+            FROM global_simulation_cells
+            ORDER BY cell_id;
+            """
+        )
+        return [dict(row) for row in rows]
+
+@app.post("/api/builder/generate-crust")
+async def generate_crust_endpoint():
+    """
+    Fires a POST request to trigger the crust_seeder.py logic.
+    Utilizes OpenSimplex noise to overwrite the 90,000 PostgreSQL cells with base land, ocean, and elevation values.
+    """
+    try:
+        from crust_seeder import seed_crust
+        await seed_crust()
+        return {"status": "success", "message": "Base crust generated and 90,000 cells overwritten successfully."}
+    except Exception as e:
+        logger.error(f"Error during crust seeding: {e}")
+        raise HTTPException(status_code=500, detail=f"Crust seeding failed: {str(e)}")
+
+@app.post("/api/builder/paint")
+async def paint_endpoint(payload: BrushStrokePlacement, pool: asyncpg.Pool = Depends(get_db_pool)):
+    """
+    Paint brush stroke batch update. Updates regional climate coordinates or chaos tags in bulk.
+    """
+    if not payload.cells:
+        return {"status": "success", "message": "No cells to paint."}
+        
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            # If climate override: elevation, temperature, moisture are provided.
+            # We must update coordinates, but we also must update flora, fauna, civ, shadow by calling get_biome_payloads.
+            if payload.elevation is not None and payload.temperature is not None and payload.moisture is not None:
+                from crust_seeder import get_biome_payloads
+                flora, fauna, civ, shadow = get_biome_payloads(payload.elevation, payload.temperature, payload.moisture)
+                
+                active_chaos_tag = None
+                if payload.elevation > 3000.0:
+                    active_chaos_tag = "Cosmic Winds"
+                elif payload.temperature < -15.0:
+                    active_chaos_tag = "Eternal Frost"
+                
+                update_query = """
+                    UPDATE global_simulation_cells
+                    SET 
+                        elevation_meters = $1,
+                        temperature_celsius = $2,
+                        moisture_index = $3,
+                        flora_biomass_data = $4,
+                        fauna_population_data = $5,
+                        civilization_profile = $6,
+                        shadow_war_metrics = $7,
+                        active_chaos_tag = COALESCE($8, active_chaos_tag)
+                    WHERE coord_x = $9 AND coord_y = $10;
+                """
+                # Prepare data list
+                data_list = []
+                for cell in payload.cells:
+                    data_list.append((
+                        payload.elevation,
+                        payload.temperature,
+                        payload.moisture,
+                        json.dumps(flora),
+                        json.dumps(fauna),
+                        json.dumps(civ),
+                        json.dumps(shadow),
+                        active_chaos_tag,
+                        cell.x,
+                        cell.y
+                    ))
+                await conn.executemany(update_query, data_list)
+            
+            # If chaos tag override:
+            if payload.chaos_tag is not None:
+                # If chaos_tag is "None", we set active_chaos_tag to NULL
+                tag_val = None if payload.chaos_tag == "None" else payload.chaos_tag
+                update_query = """
+                    UPDATE global_simulation_cells
+                    SET active_chaos_tag = $1
+                    WHERE coord_x = $2 AND coord_y = $3;
+                """
+                data_list = [(tag_val, cell.x, cell.y) for cell in payload.cells]
+                await conn.executemany(update_query, data_list)
+                
+        return {"status": "success", "message": f"Painted {len(payload.cells)} cells successfully."}
+
+@app.websocket("/api/builder/ws")
+async def builder_websocket(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time config hot-reloading without forcing a restart.
+    Accepts APPLY_TEMPLATE payload.
+    """
+    await websocket.accept()
+    logger.info("Builder WebSocket connection established.")
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                payload = json.loads(data)
+                action = payload.get("action")
+                if action == "APPLY_TEMPLATE":
+                    config_update = payload.get("config", {})
+                    # Hot-reload in memory
+                    for key, val in config_update.items():
+                        app.state.config[key] = val
+                    # Write to config.json
+                    try:
+                        with open("config.json", "w") as f:
+                            json.dump(app.state.config, f, indent=2)
+                        logger.info(f"Hot-reloaded configuration and saved to config.json: {app.state.config}")
+                        await websocket.send_json({
+                            "status": "success", 
+                            "message": "Parameters hot-reloaded successfully.", 
+                            "config": app.state.config
+                        })
+                    except Exception as err:
+                        logger.error(f"Failed to write config.json: {err}")
+                        await websocket.send_json({"status": "error", "message": f"Failed to save to config.json: {err}"})
+                else:
+                    await websocket.send_json({"status": "error", "message": f"Unknown action: {action}"})
+            except json.JSONDecodeError:
+                await websocket.send_json({"status": "error", "message": "Invalid JSON format."})
+    except WebSocketDisconnect:
+        logger.info("Builder WebSocket disconnected.")
+
+# ============================================================================
+# WORLD SIMULATION REGISTRIES ENDPOINTS
+# ============================================================================
+
+@app.get("/api/registry/flora")
+async def get_registry_flora(pool: asyncpg.Pool = Depends(get_db_pool)):
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT 
+                scientific_name, 
+                common_name, 
+                temp_preference_min::float AS temp_preference_min, 
+                temp_preference_max::float AS temp_preference_max, 
+                moisture_preference_min::float AS moisture_preference_min, 
+                moisture_preference_max::float AS moisture_preference_max, 
+                growth_rate_modifier::float AS growth_rate_modifier
+            FROM registry_flora
+            ORDER BY scientific_name;
+            """
+        )
+        return [dict(row) for row in rows]
+
+@app.post("/api/registry/flora")
+async def update_registry_flora(payload: List[FloraItemPayload], pool: asyncpg.Pool = Depends(get_db_pool)):
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            existing_rows = await conn.fetch(
+                "SELECT scientific_name, lore_embedding FROM registry_flora WHERE lore_embedding IS NOT NULL"
+            )
+            embeddings = {row["scientific_name"]: row["lore_embedding"] for row in existing_rows}
+            
+            await conn.execute("TRUNCATE TABLE registry_flora CASCADE")
+            
+            for item in payload:
+                emb = embeddings.get(item.scientific_name)
+                await conn.execute(
+                    """
+                    INSERT INTO registry_flora (
+                        scientific_name, common_name, 
+                        temp_preference_min, temp_preference_max, 
+                        moisture_preference_min, moisture_preference_max, 
+                        growth_rate_modifier, lore_embedding
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    """,
+                    item.scientific_name, item.common_name,
+                    item.temp_preference_min, item.temp_preference_max,
+                    item.moisture_preference_min, item.moisture_preference_max,
+                    item.growth_rate_modifier, emb
+                )
+    return {"status": "success", "message": "Flora registry updated successfully."}
+
+@app.get("/api/registry/fauna")
+async def get_registry_fauna(pool: asyncpg.Pool = Depends(get_db_pool)):
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT 
+                scientific_name, 
+                common_name, 
+                dietary_classification, 
+                base_pack_size, 
+                reproduction_rate::float AS reproduction_rate
+            FROM registry_fauna
+            ORDER BY scientific_name;
+            """
+        )
+        return [dict(row) for row in rows]
+
+@app.post("/api/registry/fauna")
+async def update_registry_fauna(payload: List[FaunaItemPayload], pool: asyncpg.Pool = Depends(get_db_pool)):
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            existing_rows = await conn.fetch(
+                "SELECT scientific_name, lore_embedding FROM registry_fauna WHERE lore_embedding IS NOT NULL"
+            )
+            embeddings = {row["scientific_name"]: row["lore_embedding"] for row in existing_rows}
+            
+            await conn.execute("TRUNCATE TABLE registry_fauna CASCADE")
+            
+            for item in payload:
+                emb = embeddings.get(item.scientific_name)
+                await conn.execute(
+                    """
+                    INSERT INTO registry_fauna (
+                        scientific_name, common_name, 
+                        dietary_classification, base_pack_size, 
+                        reproduction_rate, lore_embedding
+                    ) VALUES ($1, $2, $3, $4, $5, $6)
+                    """,
+                    item.scientific_name, item.common_name,
+                    item.dietary_classification, item.base_pack_size,
+                    item.reproduction_rate, emb
+                )
+    return {"status": "success", "message": "Fauna registry updated successfully."}
+
+@app.get("/api/registry/factions")
+async def get_registry_factions(pool: asyncpg.Pool = Depends(get_db_pool)):
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT 
+                faction_name, 
+                ideology_type, 
+                reputation_baseline
+            FROM registry_factions
+            ORDER BY faction_name;
+            """
+        )
+        return [dict(row) for row in rows]
+
+@app.post("/api/registry/factions")
+async def update_registry_factions(payload: List[FactionItemPayload], pool: asyncpg.Pool = Depends(get_db_pool)):
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            existing_rows = await conn.fetch(
+                "SELECT faction_name, lore_embedding FROM registry_factions WHERE lore_embedding IS NOT NULL"
+            )
+            embeddings = {row["faction_name"]: row["lore_embedding"] for row in existing_rows}
+            
+            await conn.execute("TRUNCATE TABLE registry_factions CASCADE")
+            
+            for item in payload:
+                emb = embeddings.get(item.faction_name)
+                await conn.execute(
+                    """
+                    INSERT INTO registry_factions (
+                        faction_name, ideology_type, 
+                        reputation_baseline, lore_embedding
+                    ) VALUES ($1, $2, $3, $4)
+                    """,
+                    item.faction_name, item.ideology_type,
+                    item.reputation_baseline, emb
+                )
+    return {"status": "success", "message": "Faction registry updated successfully."}
+
+# ============================================================================
+# WEB DASHBOARD SERVING ENDPOINTS
+# ============================================================================
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def get_dashboard():
+    """
+    Serves the read-only Web Dashboard HTML interface.
+    """
+    try:
+        with open(os.path.join("static", "dashboard.html"), "r", encoding="utf-8") as f:
+            content = f.read()
+        return HTMLResponse(content=content)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Dashboard file static/dashboard.html not found.")
+
+# Mount static file serving directory
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.post("/api/narrative/trigger-ai-director")
+async def trigger_ai_director(pool: asyncpg.Pool = Depends(get_db_pool)):
+    """
+    Manually triggers the Paragon AI Director to stage and resolve regional crises.
+    Useful for testing and manual clock advances.
+    """
+    if not hasattr(app.state, "ai_director") or app.state.ai_director is None:
+        raise HTTPException(status_code=500, detail="AI Director is not initialized.")
+    try:
+        # Trigger stage_crises
+        await app.state.ai_director.stage_crises()
+        
+        # Process whatever is in the queue immediately (synchronously for the API call)
+        processed = []
+        while not app.state.ai_director.queue.empty():
+            event = await app.state.ai_director.queue.get()
+            await app.state.ai_director.process_crisis_event(event)
+            processed.append({
+                "cell_id": event["cell_id"],
+                "paragon_name": event["paragon"]["name"],
+                "intent": event["paragon"].get("mechanical_intent", "Unknown")
+            })
+        return {"status": "success", "processed_events": processed}
+    except Exception as e:
+        logger.error(f"Manual AI Director execution failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Manual execution failed: {e}")
+
+@app.post("/api/narrative/ingest-vault")
+async def ingest_vault(pool: asyncpg.Pool = Depends(get_db_pool)):
+    """
+    Triggers the ingestion hook to parse, chunk, and embed Chronicles from the Obsidian vault.
+    """
+    vault_path = app.state.config.get("ai_director_config", {}).get("obsidian_vault_path", "C:/Users/krazy/Documents/Shatterlands")
+    try:
+        from lore_pipeline import ingest_obsidian_vault
+        num_files, num_chunks = await ingest_obsidian_vault(pool, vault_path)
+        return {
+            "status": "success",
+            "message": f"Successfully loaded {num_files} files generating {num_chunks} lore records."
+        }
+    except Exception as e:
+        logger.error(f"Vault ingestion failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Ingestion failed: {e}")
+
+@app.post("/api/narrative/search-lore")
+async def search_lore(payload: SearchLorePayload, pool: asyncpg.Pool = Depends(get_db_pool)):
+    """
+    Performs a hybrid search (relational filter + vector distance) over the campaign lore ledger.
+    """
+    try:
+        from narrative_quest_engine import generate_text_embedding
+        from lore_pipeline import query_hybrid_campaign_lore
+        
+        query_vector = generate_text_embedding(payload.query, 1536)
+        
+        async with pool.acquire() as conn:
+            rows = await query_hybrid_campaign_lore(
+                conn, query_vector, payload.faction_tag, payload.associated_cell_id
+            )
+            
+            results = []
+            for r in rows:
+                results.append({
+                    "ledger_id": r["ledger_id"],
+                    "associated_cell_id": r["associated_cell_id"],
+                    "faction_tag": r["faction_tag"],
+                    "raw_history_summary": r["raw_history_summary"],
+                    "similarity": float(1.0 - r["cosine_dist"]) if r.get("cosine_dist") is not None else 0.0,
+                    "recorded_at": r["recorded_at"].isoformat() if r["recorded_at"] else None
+                })
+            return {"status": "success", "results": results}
+    except Exception as e:
+        logger.error(f"Lore search failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {e}")
