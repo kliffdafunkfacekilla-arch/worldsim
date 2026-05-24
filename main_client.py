@@ -1164,6 +1164,14 @@ class PlanetaryBuilderDashboardApp(App):
         faction_btn.bind(on_release=self.show_faction_editor)
         sidebar_layout.add_widget(faction_btn)
         
+        races_btn = Button(
+            text="Edit Races Registry",
+            size_hint_y=None, height=32,
+            background_color=(0.2, 0.5, 0.5, 1.0)
+        )
+        races_btn.bind(on_release=self.show_races_editor)
+        sidebar_layout.add_widget(races_btn)
+        
         exit_btn = Button(
             text="Exit Dashboard",
             size_hint_y=None, height=36,
@@ -1425,16 +1433,19 @@ class PlanetaryBuilderDashboardApp(App):
         
     def show_psychology_editor(self, instance):
         current_data = self.config_data.get("paragon_psychology_pool", {})
-        names = current_data.get("names", [])
-        traits = current_data.get("traits", [])
+        first_names = current_data.get("first_names", [])
+        last_names = current_data.get("last_names", [])
+        positive_traits = current_data.get("positive_traits", [])
+        negative_traits = current_data.get("negative_traits", [])
+        neutral_traits = current_data.get("neutral_traits", [])
         goals = current_data.get("personal_goals", [])
         
         popup_layout = BoxLayout(orientation='vertical', spacing=10, padding=10)
-        columns_layout = BoxLayout(orientation='horizontal', spacing=15, size_hint=(1.0, 0.85))
+        columns_layout = BoxLayout(orientation='horizontal', spacing=10, size_hint=(1.0, 0.85))
         
         def create_column(title, items, add_btn_text):
             col_layout = BoxLayout(orientation='vertical', spacing=5)
-            col_layout.add_widget(Label(text=title, bold=True, font_size='14sp', size_hint_y=None, height=20))
+            col_layout.add_widget(Label(text=title, bold=True, font_size='12sp', size_hint_y=None, height=20))
             
             rows_layout = BoxLayout(orientation='vertical', size_hint_y=None, spacing=3)
             rows_layout.bind(minimum_height=rows_layout.setter('height'))
@@ -1474,13 +1485,19 @@ class PlanetaryBuilderDashboardApp(App):
             
             return col_layout, row_inputs
         
-        col_names, name_inputs = create_column("Paragon Names", names, "+ Add Name")
-        col_traits, trait_inputs = create_column("Traits", traits, "+ Add Trait")
-        col_goals, goal_inputs = create_column("Personal Goals", goals, "+ Add Goal")
+        col_fn, fn_inputs = create_column("First Names", first_names, "+ Add First")
+        col_ln, ln_inputs = create_column("Last Names", last_names, "+ Add Last")
+        col_pt, pt_inputs = create_column("Positive", positive_traits, "+ Add Pos")
+        col_nt, nt_inputs = create_column("Negative", negative_traits, "+ Add Neg")
+        col_neu, neu_inputs = create_column("Neutral", neutral_traits, "+ Add Neu")
+        col_g, g_inputs = create_column("Goals", goals, "+ Add Goal")
         
-        columns_layout.add_widget(col_names)
-        columns_layout.add_widget(col_traits)
-        columns_layout.add_widget(col_goals)
+        columns_layout.add_widget(col_fn)
+        columns_layout.add_widget(col_ln)
+        columns_layout.add_widget(col_pt)
+        columns_layout.add_widget(col_nt)
+        columns_layout.add_widget(col_neu)
+        columns_layout.add_widget(col_g)
         popup_layout.add_widget(columns_layout)
         
         btn_layout = BoxLayout(orientation='horizontal', spacing=10, size_hint_y=None, height=40)
@@ -1493,7 +1510,7 @@ class PlanetaryBuilderDashboardApp(App):
         popup = Popup(
             title="Edit Paragon Traits & Goals Pool",
             content=popup_layout,
-            size_hint=(0.95, 0.95),
+            size_hint=(0.98, 0.98),
             auto_dismiss=False
         )
         
@@ -1501,9 +1518,12 @@ class PlanetaryBuilderDashboardApp(App):
         
         def save_release(btn):
             new_psych = {
-                "names": [ti.text.strip() for ti in name_inputs if ti.text.strip()],
-                "traits": [ti.text.strip() for ti in trait_inputs if ti.text.strip()],
-                "personal_goals": [ti.text.strip() for ti in goal_inputs if ti.text.strip()]
+                "first_names": [ti.text.strip() for ti in fn_inputs if ti.text.strip()],
+                "last_names": [ti.text.strip() for ti in ln_inputs if ti.text.strip()],
+                "positive_traits": [ti.text.strip() for ti in pt_inputs if ti.text.strip()],
+                "negative_traits": [ti.text.strip() for ti in nt_inputs if ti.text.strip()],
+                "neutral_traits": [ti.text.strip() for ti in neu_inputs if ti.text.strip()],
+                "personal_goals": [ti.text.strip() for ti in g_inputs if ti.text.strip()]
             }
             self.config_data["paragon_psychology_pool"] = new_psych
             self.ws_client.send_config(dict(self.config_data))
@@ -1527,7 +1547,7 @@ class PlanetaryBuilderDashboardApp(App):
         popup = Popup(
             title="Edit Flora (Plants) Registry",
             content=popup_layout,
-            size_hint=(0.95, 0.95),
+            size_hint=(0.98, 0.98),
             auto_dismiss=False
         )
         
@@ -1538,16 +1558,31 @@ class PlanetaryBuilderDashboardApp(App):
         
         row_widgets = []
         
-        def add_flora_row(sci_name="", com_name="", t_min=0.0, t_max=0.0, m_min=0.0, m_max=0.0, g_mod=1.0):
+        def add_flora_row(sci_name="", com_name="", t_min=0.0, t_max=0.0, m_min=0.0, m_max=0.0, g_mod=1.0, res="", fatal=False, tags_list=None):
             row = BoxLayout(orientation='horizontal', size_hint_y=None, height=36, spacing=2)
             
-            sci_in = TextInput(text=str(sci_name), multiline=False, size_hint_x=0.18, write_tab=False)
-            com_in = TextInput(text=str(com_name), multiline=False, size_hint_x=0.18, write_tab=False)
-            t_min_in = TextInput(text=str(t_min), multiline=False, size_hint_x=0.10, write_tab=False)
-            t_max_in = TextInput(text=str(t_max), multiline=False, size_hint_x=0.10, write_tab=False)
-            m_min_in = TextInput(text=str(m_min), multiline=False, size_hint_x=0.10, write_tab=False)
-            m_max_in = TextInput(text=str(m_max), multiline=False, size_hint_x=0.10, write_tab=False)
-            g_mod_in = TextInput(text=str(g_mod), multiline=False, size_hint_x=0.10, write_tab=False)
+            sci_in = TextInput(text=str(sci_name), multiline=False, size_hint_x=0.15, write_tab=False)
+            com_in = TextInput(text=str(com_name), multiline=False, size_hint_x=0.15, write_tab=False)
+            t_min_in = TextInput(text=str(t_min), multiline=False, size_hint_x=0.08, write_tab=False)
+            t_max_in = TextInput(text=str(t_max), multiline=False, size_hint_x=0.08, write_tab=False)
+            m_min_in = TextInput(text=str(m_min), multiline=False, size_hint_x=0.08, write_tab=False)
+            m_max_in = TextInput(text=str(m_max), multiline=False, size_hint_x=0.08, write_tab=False)
+            g_mod_in = TextInput(text=str(g_mod), multiline=False, size_hint_x=0.08, write_tab=False)
+            res_in = TextInput(text=str(res), multiline=False, size_hint_x=0.12, write_tab=False)
+            
+            # Fatal Toggle
+            fatal_btn = Button(text="Fatal" if fatal else "Safe", size_hint_x=0.08, background_color=(0.7, 0.3, 0.1, 1.0) if fatal else (0.1, 0.5, 0.3, 1.0))
+            def toggle_fatal(b):
+                if b.text == "Fatal":
+                    b.text = "Safe"
+                    b.background_color = (0.1, 0.5, 0.3, 1.0)
+                else:
+                    b.text = "Fatal"
+                    b.background_color = (0.7, 0.3, 0.1, 1.0)
+            fatal_btn.bind(on_release=toggle_fatal)
+            
+            tags_str = ", ".join(tags_list) if tags_list else ""
+            tags_in = TextInput(text=tags_str, multiline=False, size_hint_x=0.12, write_tab=False)
             
             del_btn = Button(text="Delete", size_hint_x=0.08, background_color=(0.7, 0.2, 0.2, 1.0))
             
@@ -1558,6 +1593,9 @@ class PlanetaryBuilderDashboardApp(App):
             row.add_widget(m_min_in)
             row.add_widget(m_max_in)
             row.add_widget(g_mod_in)
+            row.add_widget(res_in)
+            row.add_widget(fatal_btn)
+            row.add_widget(tags_in)
             row.add_widget(del_btn)
             
             rows_layout.add_widget(row)
@@ -1569,7 +1607,10 @@ class PlanetaryBuilderDashboardApp(App):
                 "t_max_in": t_max_in,
                 "m_min_in": m_min_in,
                 "m_max_in": m_max_in,
-                "g_mod_in": g_mod_in
+                "g_mod_in": g_mod_in,
+                "res_in": res_in,
+                "fatal_btn": fatal_btn,
+                "tags_in": tags_in
             }
             row_widgets.append(row_info)
             
@@ -1583,13 +1624,16 @@ class PlanetaryBuilderDashboardApp(App):
             popup_layout.clear_widgets()
             
             headers = BoxLayout(orientation='horizontal', size_hint_y=None, height=20, spacing=2)
-            headers.add_widget(Label(text="Scientific Name", size_hint_x=0.18, bold=True, font_size='11sp'))
-            headers.add_widget(Label(text="Common Name", size_hint_x=0.18, bold=True, font_size='11sp'))
-            headers.add_widget(Label(text="Temp Min", size_hint_x=0.10, bold=True, font_size='11sp'))
-            headers.add_widget(Label(text="Temp Max", size_hint_x=0.10, bold=True, font_size='11sp'))
-            headers.add_widget(Label(text="Moist Min", size_hint_x=0.10, bold=True, font_size='11sp'))
-            headers.add_widget(Label(text="Moist Max", size_hint_x=0.10, bold=True, font_size='11sp'))
-            headers.add_widget(Label(text="Growth Mod", size_hint_x=0.10, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Sci Name", size_hint_x=0.15, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Common Name", size_hint_x=0.15, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="T Min", size_hint_x=0.08, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="T Max", size_hint_x=0.08, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="M Min", size_hint_x=0.08, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="M Max", size_hint_x=0.08, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Growth Mod", size_hint_x=0.08, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Harvest Res", size_hint_x=0.12, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Harvest", size_hint_x=0.08, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Tags", size_hint_x=0.12, bold=True, font_size='11sp'))
             headers.add_widget(Label(text="", size_hint_x=0.08))
             
             popup_layout.add_widget(headers)
@@ -1606,7 +1650,10 @@ class PlanetaryBuilderDashboardApp(App):
                     t_max=item.get("temp_preference_max", 0.0),
                     m_min=item.get("moisture_preference_min", 0.0),
                     m_max=item.get("moisture_preference_max", 0.0),
-                    g_mod=item.get("growth_rate_modifier", 1.0)
+                    g_mod=item.get("growth_rate_modifier", 1.0),
+                    res=item.get("harvest_resource", "") or "",
+                    fatal=item.get("is_fatal_harvest", False),
+                    tags_list=item.get("tags", [])
                 )
             
             add_btn = Button(text="+ Add Flora Item", size_hint_y=None, height=36, background_color=(0.2, 0.5, 0.7, 1.0))
@@ -1644,6 +1691,7 @@ class PlanetaryBuilderDashboardApp(App):
                 if not sci:
                     continue
                 try:
+                    tags_p = [t.strip() for t in row["tags_in"].text.split(",") if t.strip()]
                     payload.append({
                         "scientific_name": sci,
                         "common_name": com,
@@ -1651,7 +1699,10 @@ class PlanetaryBuilderDashboardApp(App):
                         "temp_preference_max": float(row["t_max_in"].text or 0.0),
                         "moisture_preference_min": float(row["m_min_in"].text or 0.0),
                         "moisture_preference_max": float(row["m_max_in"].text or 0.0),
-                        "growth_rate_modifier": float(row["g_mod_in"].text or 1.0)
+                        "growth_rate_modifier": float(row["g_mod_in"].text or 1.0),
+                        "harvest_resource": row["res_in"].text.strip() or None,
+                        "is_fatal_harvest": row["fatal_btn"].text == "Fatal",
+                        "tags": tags_p
                     })
                 except ValueError:
                     popup.title = "ValueError: Ensure numeric fields are numbers!"
@@ -1681,7 +1732,7 @@ class PlanetaryBuilderDashboardApp(App):
             
         save_btn.bind(on_release=save_release)
         popup.open()
-
+ 
     def show_fauna_editor(self, instance):
         popup_layout = BoxLayout(orientation='vertical', spacing=10, padding=10)
         loading_lbl = Label(text="Loading wildlife registry from server...", font_size='14sp', size_hint=(1.0, 0.9))
@@ -1697,7 +1748,7 @@ class PlanetaryBuilderDashboardApp(App):
         popup = Popup(
             title="Edit Wildlife (Fauna) Registry",
             content=popup_layout,
-            size_hint=(0.95, 0.95),
+            size_hint=(0.98, 0.98),
             auto_dismiss=False
         )
         
@@ -1708,14 +1759,28 @@ class PlanetaryBuilderDashboardApp(App):
         
         row_widgets = []
         
-        def add_fauna_row(sci_name="", com_name="", diet="Herbivore", pack=1, reprod=1.0):
+        def add_fauna_row(sci_name="", com_name="", diet="Herbivore", pack=1, reprod=1.0, res="", fatal=True, tags_list=None):
             row = BoxLayout(orientation='horizontal', size_hint_y=None, height=36, spacing=2)
             
-            sci_in = TextInput(text=str(sci_name), multiline=False, size_hint_x=0.25, write_tab=False)
-            com_in = TextInput(text=str(com_name), multiline=False, size_hint_x=0.25, write_tab=False)
-            diet_in = TextInput(text=str(diet), multiline=False, size_hint_x=0.20, write_tab=False)
-            pack_in = TextInput(text=str(pack), multiline=False, size_hint_x=0.10, write_tab=False)
-            reprod_in = TextInput(text=str(reprod), multiline=False, size_hint_x=0.12, write_tab=False)
+            sci_in = TextInput(text=str(sci_name), multiline=False, size_hint_x=0.18, write_tab=False)
+            com_in = TextInput(text=str(com_name), multiline=False, size_hint_x=0.18, write_tab=False)
+            diet_in = TextInput(text=str(diet), multiline=False, size_hint_x=0.12, write_tab=False)
+            pack_in = TextInput(text=str(pack), multiline=False, size_hint_x=0.08, write_tab=False)
+            reprod_in = TextInput(text=str(reprod), multiline=False, size_hint_x=0.08, write_tab=False)
+            res_in = TextInput(text=str(res), multiline=False, size_hint_x=0.12, write_tab=False)
+            
+            fatal_btn = Button(text="Fatal" if fatal else "Safe", size_hint_x=0.08, background_color=(0.7, 0.3, 0.1, 1.0) if fatal else (0.1, 0.5, 0.3, 1.0))
+            def toggle_fatal(b):
+                if b.text == "Fatal":
+                    b.text = "Safe"
+                    b.background_color = (0.1, 0.5, 0.3, 1.0)
+                else:
+                    b.text = "Fatal"
+                    b.background_color = (0.7, 0.3, 0.1, 1.0)
+            fatal_btn.bind(on_release=toggle_fatal)
+            
+            tags_str = ", ".join(tags_list) if tags_list else ""
+            tags_in = TextInput(text=tags_str, multiline=False, size_hint_x=0.12, write_tab=False)
             
             del_btn = Button(text="Delete", size_hint_x=0.08, background_color=(0.7, 0.2, 0.2, 1.0))
             
@@ -1724,6 +1789,9 @@ class PlanetaryBuilderDashboardApp(App):
             row.add_widget(diet_in)
             row.add_widget(pack_in)
             row.add_widget(reprod_in)
+            row.add_widget(res_in)
+            row.add_widget(fatal_btn)
+            row.add_widget(tags_in)
             row.add_widget(del_btn)
             
             rows_layout.add_widget(row)
@@ -1733,7 +1801,10 @@ class PlanetaryBuilderDashboardApp(App):
                 "com_in": com_in,
                 "diet_in": diet_in,
                 "pack_in": pack_in,
-                "reprod_in": reprod_in
+                "reprod_in": reprod_in,
+                "res_in": res_in,
+                "fatal_btn": fatal_btn,
+                "tags_in": tags_in
             }
             row_widgets.append(row_info)
             
@@ -1747,11 +1818,14 @@ class PlanetaryBuilderDashboardApp(App):
             popup_layout.clear_widgets()
             
             headers = BoxLayout(orientation='horizontal', size_hint_y=None, height=20, spacing=2)
-            headers.add_widget(Label(text="Scientific Name", size_hint_x=0.25, bold=True, font_size='11sp'))
-            headers.add_widget(Label(text="Common Name", size_hint_x=0.25, bold=True, font_size='11sp'))
-            headers.add_widget(Label(text="Diet Classification", size_hint_x=0.20, bold=True, font_size='11sp'))
-            headers.add_widget(Label(text="Pack Size", size_hint_x=0.10, bold=True, font_size='11sp'))
-            headers.add_widget(Label(text="Reprod Rate", size_hint_x=0.12, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Sci Name", size_hint_x=0.18, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Common Name", size_hint_x=0.18, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Diet", size_hint_x=0.12, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Pack Size", size_hint_x=0.08, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Reprod Rate", size_hint_x=0.08, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Harvest Res", size_hint_x=0.12, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Harvest", size_hint_x=0.08, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Tags", size_hint_x=0.12, bold=True, font_size='11sp'))
             headers.add_widget(Label(text="", size_hint_x=0.08))
             
             popup_layout.add_widget(headers)
@@ -1766,7 +1840,10 @@ class PlanetaryBuilderDashboardApp(App):
                     com_name=item.get("common_name", ""),
                     diet=item.get("dietary_classification", "Herbivore"),
                     pack=item.get("base_pack_size", 1),
-                    reprod=item.get("reproduction_rate", 1.0)
+                    reprod=item.get("reproduction_rate", 1.0),
+                    res=item.get("harvest_resource", "") or "",
+                    fatal=item.get("is_fatal_harvest", True),
+                    tags_list=item.get("tags", [])
                 )
             
             add_btn = Button(text="+ Add Wildlife Item", size_hint_y=None, height=36, background_color=(0.2, 0.5, 0.7, 1.0))
@@ -1805,12 +1882,16 @@ class PlanetaryBuilderDashboardApp(App):
                 if not sci:
                     continue
                 try:
+                    tags_p = [t.strip() for t in row["tags_in"].text.split(",") if t.strip()]
                     payload.append({
                         "scientific_name": sci,
                         "common_name": com,
                         "dietary_classification": diet,
                         "base_pack_size": int(row["pack_in"].text or 1),
-                        "reproduction_rate": float(row["reprod_in"].text or 1.0)
+                        "reproduction_rate": float(row["reprod_in"].text or 1.0),
+                        "harvest_resource": row["res_in"].text.strip() or None,
+                        "is_fatal_harvest": row["fatal_btn"].text == "Fatal",
+                        "tags": tags_p
                     })
                 except ValueError:
                     popup.title = "ValueError: Ensure Pack Size is int and Reprod Rate is float!"
@@ -1840,7 +1921,7 @@ class PlanetaryBuilderDashboardApp(App):
             
         save_btn.bind(on_release=save_release)
         popup.open()
-
+ 
     def show_faction_editor(self, instance):
         popup_layout = BoxLayout(orientation='vertical', spacing=10, padding=10)
         loading_lbl = Label(text="Loading faction registry from server...", font_size='14sp', size_hint=(1.0, 0.9))
@@ -1856,7 +1937,7 @@ class PlanetaryBuilderDashboardApp(App):
         popup = Popup(
             title="Edit Factions Registry",
             content=popup_layout,
-            size_hint=(0.90, 0.90),
+            size_hint=(0.98, 0.98),
             auto_dismiss=False
         )
         
@@ -1867,18 +1948,51 @@ class PlanetaryBuilderDashboardApp(App):
         
         row_widgets = []
         
-        def add_faction_row(fac_name="", ideology="", rep=0):
+        def add_faction_row(fac_name="", ideology="", rep=0, f_type="goverments", exp=5, agg=5, trd=5, gov="republic", tags_list=None, trait="bonus_trade"):
             row = BoxLayout(orientation='horizontal', size_hint_y=None, height=36, spacing=2)
             
-            fac_in = TextInput(text=str(fac_name), multiline=False, size_hint_x=0.40, write_tab=False)
-            ideology_in = TextInput(text=str(ideology), multiline=False, size_hint_x=0.32, write_tab=False)
-            rep_in = TextInput(text=str(rep), multiline=False, size_hint_x=0.20, write_tab=False)
+            fac_in = TextInput(text=str(fac_name), multiline=False, size_hint_x=0.15, write_tab=False)
+            ideology_in = TextInput(text=str(ideology), multiline=False, size_hint_x=0.12, write_tab=False)
+            rep_in = TextInput(text=str(rep), multiline=False, size_hint_x=0.07, write_tab=False)
             
-            del_btn = Button(text="Delete", size_hint_x=0.08, background_color=(0.7, 0.2, 0.2, 1.0))
+            from kivy.uix.spinner import Spinner
+            type_spinner = Spinner(
+                text=str(f_type),
+                values=("goverments", "cartels", "zealots/religious groups", "ideological orders", "mercenary groups", "pirates"),
+                size_hint_x=0.12
+            )
+            
+            exp_in = TextInput(text=str(exp), multiline=False, size_hint_x=0.06, write_tab=False)
+            agg_in = TextInput(text=str(agg), multiline=False, size_hint_x=0.06, write_tab=False)
+            trd_in = TextInput(text=str(trd), multiline=False, size_hint_x=0.06, write_tab=False)
+            
+            gov_spinner = Spinner(
+                text=str(gov),
+                values=("monarchy", "republic", "capitalist", "communist", "commonwealth", "confederacy", "free states", "religious", "dictatorship", "horde/hive", "tribal", "feudalism", "anarchy"),
+                size_hint_x=0.12
+            )
+            
+            tags_str = ", ".join(tags_list) if tags_list else ""
+            tags_in = TextInput(text=tags_str, multiline=False, size_hint_x=0.10, write_tab=False)
+            
+            trait_spinner = Spinner(
+                text=str(trait),
+                values=("bonus_trade", "tougher_security", "higher_growth", "bonus_production", "lower_transit_risk", "slower_food_consumption"),
+                size_hint_x=0.12
+            )
+            
+            del_btn = Button(text="Delete", size_hint_x=0.06, background_color=(0.7, 0.2, 0.2, 1.0))
             
             row.add_widget(fac_in)
             row.add_widget(ideology_in)
             row.add_widget(rep_in)
+            row.add_widget(type_spinner)
+            row.add_widget(exp_in)
+            row.add_widget(agg_in)
+            row.add_widget(trd_in)
+            row.add_widget(gov_spinner)
+            row.add_widget(tags_in)
+            row.add_widget(trait_spinner)
             row.add_widget(del_btn)
             
             rows_layout.add_widget(row)
@@ -1886,7 +2000,14 @@ class PlanetaryBuilderDashboardApp(App):
                 "widget": row,
                 "fac_in": fac_in,
                 "ideology_in": ideology_in,
-                "rep_in": rep_in
+                "rep_in": rep_in,
+                "type_spinner": type_spinner,
+                "exp_in": exp_in,
+                "agg_in": agg_in,
+                "trd_in": trd_in,
+                "gov_spinner": gov_spinner,
+                "tags_in": tags_in,
+                "trait_spinner": trait_spinner
             }
             row_widgets.append(row_info)
             
@@ -1900,10 +2021,17 @@ class PlanetaryBuilderDashboardApp(App):
             popup_layout.clear_widgets()
             
             headers = BoxLayout(orientation='horizontal', size_hint_y=None, height=20, spacing=2)
-            headers.add_widget(Label(text="Faction Name (starts with #)", size_hint_x=0.40, bold=True, font_size='11sp'))
-            headers.add_widget(Label(text="Ideology Type", size_hint_x=0.32, bold=True, font_size='11sp'))
-            headers.add_widget(Label(text="Reputation Baseline", size_hint_x=0.20, bold=True, font_size='11sp'))
-            headers.add_widget(Label(text="", size_hint_x=0.08))
+            headers.add_widget(Label(text="Faction Name", size_hint_x=0.15, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Ideology", size_hint_x=0.12, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Reputation", size_hint_x=0.07, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Type", size_hint_x=0.12, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Exp", size_hint_x=0.06, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Agg", size_hint_x=0.06, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Trd", size_hint_x=0.06, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Government", size_hint_x=0.12, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Tags", size_hint_x=0.10, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Trait", size_hint_x=0.12, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="", size_hint_x=0.06))
             
             popup_layout.add_widget(headers)
             
@@ -1915,7 +2043,14 @@ class PlanetaryBuilderDashboardApp(App):
                 add_faction_row(
                     fac_name=item.get("faction_name", ""),
                     ideology=item.get("ideology_type", ""),
-                    rep=item.get("reputation_baseline", 0)
+                    rep=item.get("reputation_baseline", 0),
+                    f_type=item.get("faction_type", "goverments"),
+                    exp=item.get("expansion_level", 5),
+                    agg=item.get("aggression_level", 5),
+                    trd=item.get("trade_level", 5),
+                    gov=item.get("government_type", "republic"),
+                    tags_list=item.get("tags", []),
+                    trait=item.get("faction_trait", "bonus_trade")
                 )
             
             add_btn = Button(text="+ Add Faction Item", size_hint_y=None, height=36, background_color=(0.2, 0.5, 0.7, 1.0))
@@ -1953,13 +2088,21 @@ class PlanetaryBuilderDashboardApp(App):
                 if not name:
                     continue
                 try:
+                    tags_p = [t.strip() for t in row["tags_in"].text.split(",") if t.strip()]
                     payload.append({
                         "faction_name": name,
                         "ideology_type": ideology,
-                        "reputation_baseline": int(row["rep_in"].text or 0)
+                        "reputation_baseline": int(row["rep_in"].text or 0),
+                        "faction_type": row["type_spinner"].text,
+                        "expansion_level": int(row["exp_in"].text or 5),
+                        "aggression_level": int(row["agg_in"].text or 5),
+                        "trade_level": int(row["trd_in"].text or 5),
+                        "government_type": row["gov_spinner"].text,
+                        "tags": tags_p,
+                        "faction_trait": row["trait_spinner"].text
                     })
                 except ValueError:
-                    popup.title = "ValueError: Ensure Reputation is an integer!"
+                    popup.title = "ValueError: Ensure levels and Reputation are integers!"
                     save_btn.disabled = False
                     save_btn.text = "Save & Sync"
                     return
@@ -1987,7 +2130,195 @@ class PlanetaryBuilderDashboardApp(App):
         save_btn.bind(on_release=save_release)
         popup.open()
 
-
+    def show_races_editor(self, instance):
+        popup_layout = BoxLayout(orientation='vertical', spacing=10, padding=10)
+        loading_lbl = Label(text="Loading sentient species registry from server...", font_size='14sp', size_hint=(1.0, 0.9))
+        popup_layout.add_widget(loading_lbl)
+        
+        btn_layout = BoxLayout(orientation='horizontal', spacing=10, size_hint_y=None, height=40)
+        save_btn = Button(text="Save & Sync", background_color=(0.1, 0.7, 0.4, 1.0), disabled=True)
+        cancel_btn = Button(text="Cancel", background_color=(0.7, 0.2, 0.2, 1.0))
+        btn_layout.add_widget(save_btn)
+        btn_layout.add_widget(cancel_btn)
+        popup_layout.add_widget(btn_layout)
+        
+        popup = Popup(
+            title="Edit Sentient Species (Races) Registry",
+            content=popup_layout,
+            size_hint=(0.98, 0.98),
+            auto_dismiss=False
+        )
+        
+        cancel_btn.bind(on_release=popup.dismiss)
+        
+        rows_layout = BoxLayout(orientation='vertical', size_hint_y=None, spacing=5)
+        rows_layout.bind(minimum_height=rows_layout.setter('height'))
+        
+        row_widgets = []
+        
+        def add_race_row(race_name="", genus="mammal", faction="", t_min=-10.0, t_max=30.0, m_min=0.2, m_max=0.8, reprod=1.0, food=1.0):
+            row = BoxLayout(orientation='horizontal', size_hint_y=None, height=36, spacing=2)
+            
+            race_in = TextInput(text=str(race_name), multiline=False, size_hint_x=0.18, write_tab=False)
+            
+            from kivy.uix.spinner import Spinner
+            genus_spinner = Spinner(
+                text=str(genus),
+                values=("plant", "insect", "mammal", "avian", "reptile", "aquatic"),
+                size_hint_x=0.12
+            )
+            
+            fac_in = TextInput(text=str(faction or ""), multiline=False, size_hint_x=0.15, write_tab=False)
+            t_min_in = TextInput(text=str(t_min), multiline=False, size_hint_x=0.08, write_tab=False)
+            t_max_in = TextInput(text=str(t_max), multiline=False, size_hint_x=0.08, write_tab=False)
+            m_min_in = TextInput(text=str(m_min), multiline=False, size_hint_x=0.08, write_tab=False)
+            m_max_in = TextInput(text=str(m_max), multiline=False, size_hint_x=0.08, write_tab=False)
+            reprod_in = TextInput(text=str(reprod), multiline=False, size_hint_x=0.08, write_tab=False)
+            food_in = TextInput(text=str(food), multiline=False, size_hint_x=0.08, write_tab=False)
+            
+            del_btn = Button(text="Delete", size_hint_x=0.07, background_color=(0.7, 0.2, 0.2, 1.0))
+            
+            row.add_widget(race_in)
+            row.add_widget(genus_spinner)
+            row.add_widget(fac_in)
+            row.add_widget(t_min_in)
+            row.add_widget(t_max_in)
+            row.add_widget(m_min_in)
+            row.add_widget(m_max_in)
+            row.add_widget(reprod_in)
+            row.add_widget(food_in)
+            row.add_widget(del_btn)
+            
+            rows_layout.add_widget(row)
+            row_info = {
+                "widget": row,
+                "race_in": race_in,
+                "genus_spinner": genus_spinner,
+                "fac_in": fac_in,
+                "t_min_in": t_min_in,
+                "t_max_in": t_max_in,
+                "m_min_in": m_min_in,
+                "m_max_in": m_max_in,
+                "reprod_in": reprod_in,
+                "food_in": food_in
+            }
+            row_widgets.append(row_info)
+            
+            def on_delete(b):
+                rows_layout.remove_widget(row)
+                if row_info in row_widgets:
+                    row_widgets.remove(row_info)
+            del_btn.bind(on_release=on_delete)
+            
+        def on_fetch_success(dt, data):
+            popup_layout.clear_widgets()
+            
+            headers = BoxLayout(orientation='horizontal', size_hint_y=None, height=20, spacing=2)
+            headers.add_widget(Label(text="Race Name", size_hint_x=0.18, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Genus Type", size_hint_x=0.12, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Associated Faction", size_hint_x=0.15, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="T Min", size_hint_x=0.08, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="T Max", size_hint_x=0.08, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="M Min", size_hint_x=0.08, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="M Max", size_hint_x=0.08, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Reprod Rate", size_hint_x=0.08, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="Food Cons", size_hint_x=0.08, bold=True, font_size='11sp'))
+            headers.add_widget(Label(text="", size_hint_x=0.07))
+            
+            popup_layout.add_widget(headers)
+            
+            scroll_view = ScrollView(size_hint=(1.0, 0.75))
+            scroll_view.add_widget(rows_layout)
+            popup_layout.add_widget(scroll_view)
+            
+            for item in data:
+                add_race_row(
+                    race_name=item.get("race_name", ""),
+                    genus=item.get("genus_type", "mammal"),
+                    faction=item.get("associated_faction_name", "") or "",
+                    t_min=item.get("temp_preference_min", -10.0),
+                    t_max=item.get("temp_preference_max", 30.0),
+                    m_min=item.get("moisture_preference_min", 0.2),
+                    m_max=item.get("moisture_preference_max", 0.8),
+                    reprod=item.get("reproduction_rate", 1.0),
+                    food=item.get("food_consumption_rate", 1.0)
+                )
+            
+            add_btn = Button(text="+ Add Race Item", size_hint_y=None, height=36, background_color=(0.2, 0.5, 0.7, 1.0))
+            def on_add_press(b):
+                add_race_row()
+            add_btn.bind(on_release=on_add_press)
+            popup_layout.add_widget(add_btn)
+            
+            popup_layout.add_widget(btn_layout)
+            save_btn.disabled = False
+            
+        def on_fetch_failed(dt, err_msg):
+            loading_lbl.text = f"Failed to fetch sentient races registry: {err_msg}"
+            
+        def fetch_thread():
+            try:
+                r = requests.get(f"{SERVER_URL}/api/registry/races", timeout=5.0)
+                if r.status_code == 200:
+                    Clock.schedule_once(lambda dt: on_fetch_success(dt, r.json()))
+                else:
+                    Clock.schedule_once(lambda dt: on_fetch_failed(dt, f"Status {r.status_code}"))
+            except Exception as e:
+                Clock.schedule_once(lambda dt: on_fetch_failed(dt, str(e)))
+                
+        threading.Thread(target=fetch_thread, daemon=True).start()
+        
+        def save_release(btn):
+            save_btn.disabled = True
+            save_btn.text = "Syncing..."
+            
+            payload = []
+            for row in row_widgets:
+                name = row["race_in"].text.strip()
+                genus = row["genus_spinner"].text
+                fac = row["fac_in"].text.strip()
+                if not name:
+                    continue
+                try:
+                    payload.append({
+                        "race_name": name,
+                        "genus_type": genus,
+                        "associated_faction_name": fac if fac else None,
+                        "temp_preference_min": float(row["t_min_in"].text or 0.0),
+                        "temp_preference_max": float(row["t_max_in"].text or 0.0),
+                        "moisture_preference_min": float(row["m_min_in"].text or 0.0),
+                        "moisture_preference_max": float(row["m_max_in"].text or 0.0),
+                        "reproduction_rate": float(row["reprod_in"].text or 1.0),
+                        "food_consumption_rate": float(row["food_in"].text or 1.0)
+                    })
+                except ValueError:
+                    popup.title = "ValueError: Ensure numeric preferences and rates are floats!"
+                    save_btn.disabled = False
+                    save_btn.text = "Save & Sync"
+                    return
+            
+            def save_thread():
+                try:
+                    r = requests.post(f"{SERVER_URL}/api/registry/races", json=payload, timeout=10.0)
+                    if r.status_code == 200:
+                        Clock.schedule_once(lambda dt: popup.dismiss())
+                    else:
+                        def handle_err(dt):
+                            popup.title = f"Sync Failed: Status {r.status_code}"
+                            save_btn.disabled = False
+                            save_btn.text = "Save & Sync"
+                        Clock.schedule_once(handle_err)
+                except Exception as e:
+                    def handle_err(dt):
+                        popup.title = f"Sync Error: {e}"
+                        save_btn.disabled = False
+                        save_btn.text = "Save & Sync"
+                    Clock.schedule_once(handle_err)
+            
+            threading.Thread(target=save_thread, daemon=True).start()
+            
+        save_btn.bind(on_release=save_release)
+        popup.open()
 # Helper models for Pydantic serialization
 class PaintCell:
     def __init__(self, x, y):

@@ -92,6 +92,9 @@ CREATE TABLE registry_flora (
     moisture_preference_min NUMERIC(4, 3) NOT NULL,
     moisture_preference_max NUMERIC(4, 3) NOT NULL,
     growth_rate_modifier NUMERIC(4, 2) NOT NULL DEFAULT 1.00,
+    harvest_resource VARCHAR(255),
+    is_fatal_harvest BOOLEAN NOT NULL DEFAULT FALSE,
+    tags VARCHAR(100)[],
     lore_embedding REAL[]
 );
 
@@ -105,6 +108,9 @@ CREATE TABLE registry_fauna (
     dietary_classification VARCHAR(100) NOT NULL,
     base_pack_size INTEGER NOT NULL DEFAULT 1,
     reproduction_rate NUMERIC(4, 2) NOT NULL DEFAULT 1.00,
+    harvest_resource VARCHAR(255),
+    is_fatal_harvest BOOLEAN NOT NULL DEFAULT TRUE,
+    tags VARCHAR(100)[],
     lore_embedding REAL[]
 );
 
@@ -116,10 +122,34 @@ CREATE TABLE registry_factions (
     faction_name VARCHAR(255) UNIQUE NOT NULL,
     ideology_type VARCHAR(100) NOT NULL,
     reputation_baseline INTEGER NOT NULL DEFAULT 0,
+    faction_type VARCHAR(100) NOT NULL DEFAULT 'goverments',
+    expansion_level INTEGER NOT NULL DEFAULT 5,
+    aggression_level INTEGER NOT NULL DEFAULT 5,
+    trade_level INTEGER NOT NULL DEFAULT 5,
+    government_type VARCHAR(100) NOT NULL DEFAULT 'republic',
+    tags VARCHAR(100)[],
+    faction_trait VARCHAR(255) NOT NULL DEFAULT 'bonus_trade',
     lore_embedding REAL[]
 );
 
 COMMENT ON TABLE registry_factions IS 'Registry of existing factions, political units, or sovereign groups.';
+
+-- Sentient Races/Species Registry.
+CREATE TABLE registry_races (
+    race_id SERIAL PRIMARY KEY,
+    race_name VARCHAR(255) UNIQUE NOT NULL,
+    genus_type VARCHAR(100) NOT NULL, -- plant, insect, mammal, avian, reptile, aquatic
+    associated_faction_name VARCHAR(255) REFERENCES registry_factions(faction_name) ON DELETE SET NULL,
+    temp_preference_min NUMERIC(5, 2) NOT NULL,
+    temp_preference_max NUMERIC(5, 2) NOT NULL,
+    moisture_preference_min NUMERIC(4, 3) NOT NULL,
+    moisture_preference_max NUMERIC(4, 3) NOT NULL,
+    reproduction_rate NUMERIC(4, 2) NOT NULL DEFAULT 1.00,
+    food_consumption_rate NUMERIC(4, 2) NOT NULL DEFAULT 1.00,
+    lore_embedding REAL[]
+);
+
+COMMENT ON TABLE registry_races IS 'Sentient races and species with climate preferences and faction alignments.';
 
 -- Faction starting parameters for simulation world generation.
 CREATE TABLE genesis_faction_seeds (
@@ -435,73 +465,114 @@ $$;
 
 
 -- ============================================================================
--- SEED DATA FOR REGISTRIES (FACTIONS, FLORA, FAUNA)
+-- SEED DATA FOR REGISTRIES (FACTIONS, FLORA, FAUNA, RACES)
 -- ============================================================================
 
 -- Seed Faction Registry with Core and Unique Lore Factions
-INSERT INTO registry_factions (faction_name, ideology_type, reputation_baseline) VALUES
-('#GorgonHorde', 'Expansionist', 0),
-('#CinderClaw', 'Survivalist', 0),
-('#IronClan', 'Industrialist', 0),
-('#Independent', 'Neutral', 0),
-('#GreyWardens', 'Vigilant Guardians', 50),
-('#CrimsonCorsairs', 'Rebellion Sky-Pirates', -30),
-('#CloudHarriers', 'Aerostatic Raiders', -20),
-('#OrderOfClockwork', 'Determined Bureaucrats', 30),
-('#Hearthless', 'Planar Outcasts', -10),
-('#CanalKrewes', 'Urban Trade Cartel', 15)
+INSERT INTO registry_factions (faction_name, ideology_type, reputation_baseline, faction_type, expansion_level, aggression_level, trade_level, government_type, tags, faction_trait) VALUES
+('#WardenClans', 'Preservationist', 20, 'ideological orders', 4, 6, 3, 'confederacy', ARRAY['crusaders', 'charitable'], 'tougher_security'),
+('#WormCults', 'Subversive Nihilist', -50, 'zealots/religious groups', 7, 9, 1, 'religious', ARRAY['xenophobic', 'fascist'], 'higher_growth'),
+('#SumpKin', 'Mercantile Exploiter', -10, 'cartels', 6, 5, 8, 'capitalist', ARRAY['exploitative'], 'bonus_production'),
+('#RiverFolk', 'Free-Market Trader', 15, 'goverments', 5, 3, 9, 'republic', ARRAY['charitable'], 'bonus_trade'),
+('#Wolves', 'Militaristic Guardian', 10, 'goverments', 6, 7, 4, 'monarchy', ARRAY['crusaders', 'xenophobic'], 'tougher_security'),
+('#Vulpines', 'Shrewd Banker', 5, 'cartels', 3, 4, 10, 'capitalist', ARRAY['exploitative'], 'bonus_trade'),
+('#Wolverines', 'Isolationist Guard', 0, 'mercenary groups', 2, 8, 3, 'tribal', ARRAY['xenophobic'], 'tougher_security'),
+('#GuerrillaClans', 'Asymmetric Rebel', -20, 'pirates', 4, 7, 2, 'anarchy', ARRAY['crusaders'], 'lower_transit_risk'),
+('#EquineNobles', 'Aristocratic Feudalist', 10, 'goverments', 5, 4, 7, 'feudalism', ARRAY['charitable'], 'slower_food_consumption'),
+('#Beavers', 'Cooperative Builder', 25, 'goverments', 4, 2, 6, 'commonwealth', ARRAY['charitable'], 'bonus_production'),
+('#Independent', 'Autonomous Outcast', 0, 'goverments', 2, 2, 5, 'free states', ARRAY['charitable'], 'bonus_trade')
 ON CONFLICT (faction_name) DO UPDATE SET
   ideology_type = EXCLUDED.ideology_type,
-  reputation_baseline = EXCLUDED.reputation_baseline;
+  reputation_baseline = EXCLUDED.reputation_baseline,
+  faction_type = EXCLUDED.faction_type,
+  expansion_level = EXCLUDED.expansion_level,
+  aggression_level = EXCLUDED.aggression_level,
+  trade_level = EXCLUDED.trade_level,
+  government_type = EXCLUDED.government_type,
+  tags = EXCLUDED.tags,
+  faction_trait = EXCLUDED.faction_trait;
+
+-- Seed Sentient Races/Species Registry
+INSERT INTO registry_races (race_name, genus_type, associated_faction_name, temp_preference_min, temp_preference_max, moisture_preference_min, moisture_preference_max, reproduction_rate, food_consumption_rate) VALUES
+('Wardens', 'mammal', '#WardenClans', -15.00, 25.00, 0.200, 0.700, 1.00, 1.00),
+('Cultists', 'mammal', '#WormCults', -10.00, 35.00, 0.150, 0.750, 1.20, 1.10),
+('Toad Folk', 'aquatic', '#SumpKin', 10.00, 35.00, 0.500, 1.000, 1.10, 0.90),
+('River Otter Folk', 'aquatic', '#RiverFolk', 5.00, 30.00, 0.600, 1.000, 1.00, 1.00),
+('Wolf Folk', 'mammal', '#Wolves', -15.00, 25.00, 0.200, 0.700, 0.90, 1.20),
+('Fox Folk', 'mammal', '#Vulpines', -10.00, 30.00, 0.250, 0.750, 1.05, 0.85),
+('Wolverine Folk', 'mammal', '#Wolverines', -25.00, 15.00, 0.100, 0.600, 0.80, 1.30),
+('Hedge Folk', 'mammal', '#GuerrillaClans', -5.00, 32.00, 0.200, 0.800, 1.15, 0.95),
+('Equine Folk', 'mammal', '#EquineNobles', 0.00, 30.00, 0.300, 0.800, 0.95, 1.10),
+('Beaver Folk', 'mammal', '#Beavers', -10.00, 28.00, 0.400, 0.900, 1.10, 1.05),
+('Ant Folk', 'insect', '#Independent', 5.00, 40.00, 0.100, 0.800, 1.50, 0.70),
+('Frog Folk', 'aquatic', '#SumpKin', 15.00, 35.00, 0.600, 1.000, 1.40, 0.80),
+('Bat Folk', 'avian', '#WormCults', -20.00, 20.00, 0.100, 0.600, 1.20, 1.00),
+('Red Panda Folk', 'mammal', '#Independent', -5.00, 25.00, 0.300, 0.800, 1.00, 0.90),
+('Hippo Folk', 'aquatic', '#RiverFolk', 15.00, 40.00, 0.500, 1.000, 0.85, 1.50)
+ON CONFLICT (race_name) DO UPDATE SET
+  genus_type = EXCLUDED.genus_type,
+  associated_faction_name = EXCLUDED.associated_faction_name,
+  temp_preference_min = EXCLUDED.temp_preference_min,
+  temp_preference_max = EXCLUDED.temp_preference_max,
+  moisture_preference_min = EXCLUDED.moisture_preference_min,
+  moisture_preference_max = EXCLUDED.moisture_preference_max,
+  reproduction_rate = EXCLUDED.reproduction_rate,
+  food_consumption_rate = EXCLUDED.food_consumption_rate;
 
 -- Seed Flora Registry with Generic and Unique Lore Plants
-INSERT INTO registry_flora (scientific_name, common_name, temp_preference_min, temp_preference_max, moisture_preference_min, moisture_preference_max, growth_rate_modifier) VALUES
-('ryegrass', 'Steppe Ryegrass', 5.00, 30.00, 0.200, 0.600, 1.00),
-('broadleaf_oak', 'Broadleaf Oak', 10.00, 25.00, 0.350, 0.750, 1.00),
-('pine', 'Boreal Pine', -15.00, 15.00, 0.200, 0.600, 0.80),
-('alpine_moss', 'Alpine Moss', -25.00, 5.00, 0.100, 0.500, 0.50),
-('saguaro_cactus', 'Saguaro Cactus', 15.00, 45.00, 0.000, 0.150, 0.60),
-('rainforest_fern', 'Rainforest Fern', 18.00, 35.00, 0.700, 1.000, 1.30),
-('mangrove', 'Bayou Mangrove', 15.00, 30.00, 0.650, 0.950, 1.10),
-('aether_root', 'Aetheric Root Glow', 5.00, 25.00, 0.300, 0.800, 1.20),
-('cinder_bloom', 'Ashen Cinder Bloom', 20.00, 50.00, 0.050, 0.300, 0.75),
-('medicinal_herb', 'Sanative Sage', 8.00, 28.00, 0.250, 0.650, 1.00),
-('dragonstone_vine', 'Dragonstone Vine', 12.00, 32.00, 0.300, 0.700, 1.10),
-('silver_leaf', 'Scholarly Silver Leaf', 10.00, 22.00, 0.400, 0.700, 0.90),
-('jolt_berry', 'Voltaic Jolt Berry', 10.00, 30.00, 0.300, 0.800, 1.15),
-('ozone_flower', 'High-Altitude Ozone Flower', -10.00, 20.00, 0.200, 0.600, 1.05)
+INSERT INTO registry_flora (scientific_name, common_name, temp_preference_min, temp_preference_max, moisture_preference_min, moisture_preference_max, growth_rate_modifier, harvest_resource, is_fatal_harvest, tags) VALUES
+('ryegrass', 'Steppe Ryegrass', 5.00, 30.00, 0.200, 0.600, 1.00, 'Ryegrass Seeds', TRUE, ARRAY['grain', 'feed']),
+('broadleaf_oak', 'Broadleaf Oak', 10.00, 25.00, 0.350, 0.750, 1.00, 'Oakwood', TRUE, ARRAY['hardwood', 'construction']),
+('pine', 'Boreal Pine', -15.00, 15.00, 0.200, 0.600, 0.80, 'Boreal Pine', TRUE, ARRAY['softwood', 'timber']),
+('alpine_moss', 'Alpine Moss', -25.00, 5.00, 0.100, 0.500, 0.50, 'Moss Fibers', FALSE, ARRAY['feed', 'insulation']),
+('saguaro_cactus', 'Saguaro Cactus', 15.00, 45.00, 0.000, 0.150, 0.60, 'Cactus Fiber', FALSE, ARRAY['fibrous', 'desert']),
+('rainforest_fern', 'Rainforest Fern', 18.00, 35.00, 0.700, 1.000, 1.30, 'Fern Extract', FALSE, ARRAY['chemical', 'jungle']),
+('mangrove', 'Bayou Mangrove', 15.00, 30.00, 0.650, 0.950, 1.10, 'Mangrove Sap', FALSE, ARRAY['chemical', 'aquatic']),
+('aether_root', 'Aetheric Root Glow', 5.00, 25.00, 0.300, 0.800, 1.20, 'Aether Elixir', FALSE, ARRAY['magical', 'glow']),
+('cinder_bloom', 'Ashen Cinder Bloom', 20.00, 50.00, 0.050, 0.300, 0.75, 'Ashen Powder', TRUE, ARRAY['chemical', 'flammable']),
+('medicinal_herb', 'Sanative Sage', 8.00, 28.00, 0.250, 0.650, 1.00, 'Medicinal Herb', FALSE, ARRAY['medicinal']),
+('dragonstone_vine', 'Dragonstone Vine', 12.00, 32.00, 0.300, 0.700, 1.10, 'DragonGlass', FALSE, ARRAY['magical', 'glassy']),
+('silver_leaf', 'Scholarly Silver Leaf', 10.00, 22.00, 0.400, 0.700, 0.90, 'Silver Ink', FALSE, ARRAY['cultural', 'silver']),
+('jolt_berry', 'Voltaic Jolt Berry', 10.00, 30.00, 0.300, 0.800, 1.15, 'Jolt Battery', FALSE, ARRAY['magical', 'electrical']),
+('ozone_flower', 'High-Altitude Ozone Flower', -10.00, 20.00, 0.200, 0.600, 1.05, 'Ozone Catalyst', FALSE, ARRAY['chemical', 'high_altitude'])
 ON CONFLICT (scientific_name) DO UPDATE SET
   common_name = EXCLUDED.common_name,
   temp_preference_min = EXCLUDED.temp_preference_min,
   temp_preference_max = EXCLUDED.temp_preference_max,
   moisture_preference_min = EXCLUDED.moisture_preference_min,
   moisture_preference_max = EXCLUDED.moisture_preference_max,
-  growth_rate_modifier = EXCLUDED.growth_rate_modifier;
+  growth_rate_modifier = EXCLUDED.growth_rate_modifier,
+  harvest_resource = EXCLUDED.harvest_resource,
+  is_fatal_harvest = EXCLUDED.is_fatal_harvest,
+  tags = EXCLUDED.tags;
 
 -- Seed Fauna Registry with Generic and Unique Lore Wildlife
-INSERT INTO registry_fauna (scientific_name, common_name, dietary_classification, base_pack_size, reproduction_rate) VALUES
-('steppe_gazelle', 'Steppe Gazelle', 'Herbivore', 12, 1.10),
-('red_deer', 'Stately Red Deer', 'Herbivore', 8, 0.90),
-('boreal_elk', 'Boreal Elk', 'Herbivore', 6, 0.80),
-('mountain_goat', 'Alpine Mountain Goat', 'Herbivore', 4, 0.70),
-('desert_viper', 'Arid Desert Viper', 'Carnivore', 1, 1.20),
-('tree_frog', 'Emerald Tree Frog', 'Insectivore', 25, 2.10),
-('reef_fish', 'Coastal Reef Fish', 'Omnivore', 50, 2.50),
-('abyssal_eel', 'Abyssal Deep Eel', 'Carnivore', 2, 0.50),
-('polar_bear', 'Arctic Polar Bear', 'Carnivore', 1, 0.30),
-('lynx', 'Boreal Lynx', 'Carnivore', 2, 0.60),
-('red_fox', 'Sly Red Fox', 'Omnivore', 2, 1.15),
-('jaguar', 'Jungle Jaguar', 'Carnivore', 1, 0.45),
-('swamp_leech', 'Bloody Swamp Leech', 'Carnivore', 100, 3.50),
-('caiman', 'Estuary Caiman', 'Carnivore', 3, 0.75),
-('dragonstone_wasp', 'Swarming Magitech Wasp', 'Insectivore', 30, 2.00),
-('cloud_harrier', 'Aerostatic Cloud Harrier', 'Carnivore', 4, 0.70),
-('seahorse_courier', 'Trained Seahorse Courier', 'Herbivore', 3, 1.00),
-('spring_ghost', 'Spectral Spring Ghost', 'Detritivore', 1, 0.20),
-('voltaic_sheep', 'Static Fleece Sheep', 'Herbivore', 10, 1.00),
-('wind_hawk', 'Shattered Peak Wind Hawk', 'Carnivore', 2, 0.85)
+INSERT INTO registry_fauna (scientific_name, common_name, dietary_classification, base_pack_size, reproduction_rate, harvest_resource, is_fatal_harvest, tags) VALUES
+('steppe_gazelle', 'Steppe Gazelle', 'Herbivore', 12, 1.10, 'Red Meat', TRUE, ARRAY['prey', 'wild']),
+('red_deer', 'Stately Red Deer', 'Herbivore', 8, 0.90, 'Red Meat', TRUE, ARRAY['prey', 'herd']),
+('boreal_elk', 'Boreal Elk', 'Herbivore', 6, 0.80, 'Red Meat', TRUE, ARRAY['prey', 'herd']),
+('mountain_goat', 'Alpine Mountain Goat', 'Herbivore', 4, 0.70, 'Red Meat', TRUE, ARRAY['prey', 'hardy']),
+('desert_viper', 'Arid Desert Viper', 'Carnivore', 1, 1.20, 'Viper Venom', TRUE, ARRAY['predator', 'poisonous']),
+('tree_frog', 'Emerald Tree Frog', 'Insectivore', 25, 2.10, 'Frog Toxins', FALSE, ARRAY['wild', 'toxic']),
+('reef_fish', 'Coastal Reef Fish', 'Omnivore', 50, 2.50, 'Fish', TRUE, ARRAY['prey', 'aquatic']),
+('abyssal_eel', 'Abyssal Deep Eel', 'Carnivore', 2, 0.50, 'Abyssal Oil', TRUE, ARRAY['predator', 'aquatic']),
+('polar_bear', 'Arctic Polar Bear', 'Carnivore', 1, 0.30, 'Red Meat', TRUE, ARRAY['predator', 'hide']),
+('lynx', 'Boreal Lynx', 'Carnivore', 2, 0.60, 'Pelt', TRUE, ARRAY['predator', 'wild']),
+('red_fox', 'Sly Red Fox', 'Omnivore', 2, 1.15, 'Pelt', TRUE, ARRAY['prey', 'wild']),
+('jaguar', 'Jungle Jaguar', 'Carnivore', 1, 0.45, 'Pelt', TRUE, ARRAY['predator', 'jungle']),
+('swamp_leech', 'Bloody Swamp Leech', 'Carnivore', 100, 3.50, 'Leech Extract', FALSE, ARRAY['predator', 'toxic']),
+('caiman', 'Estuary Caiman', 'Carnivore', 3, 0.75, 'Caiman Leather', TRUE, ARRAY['predator', 'aquatic']),
+('dragonstone_wasp', 'Swarming Magitech Wasp', 'Insectivore', 30, 2.00, 'Magitech Wasp Shard', TRUE, ARRAY['magical', 'insect']),
+('cloud_harrier', 'Aerostatic Cloud Harrier', 'Carnivore', 4, 0.70, 'Poultry', TRUE, ARRAY['predator', 'flyer']),
+('seahorse_courier', 'Trained Seahorse Courier', 'Herbivore', 3, 1.00, 'Courier Saddle', FALSE, ARRAY['aquatic', 'utility']),
+('spring_ghost', 'Spectral Spring Ghost', 'Detritivore', 1, 0.20, 'Ghost Residue', FALSE, ARRAY['magical', 'undead']),
+('voltaic_sheep', 'Static Fleece Sheep', 'Herbivore', 10, 1.00, 'Static Wool', FALSE, ARRAY['magical', 'herd']),
+('wind_hawk', 'Shattered Peak Wind Hawk', 'Carnivore', 2, 0.85, 'Poultry', TRUE, ARRAY['predator', 'flyer'])
 ON CONFLICT (scientific_name) DO UPDATE SET
   common_name = EXCLUDED.common_name,
   dietary_classification = EXCLUDED.dietary_classification,
   base_pack_size = EXCLUDED.base_pack_size,
-  reproduction_rate = EXCLUDED.reproduction_rate;
+  reproduction_rate = EXCLUDED.reproduction_rate,
+  harvest_resource = EXCLUDED.harvest_resource,
+  is_fatal_harvest = EXCLUDED.is_fatal_harvest,
+  tags = EXCLUDED.tags;

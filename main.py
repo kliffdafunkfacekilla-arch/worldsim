@@ -230,9 +230,12 @@ async def startup_event():
             "ClockworkGear": {"requires_tag": "#DeterminedBureaucrats", "unlocked_at_tier": "Town"}
         },
         "paragon_psychology_pool": {
-            "names": ["Viceroy Roderick", "Captain Steelclad", "Eldest Ignis", "General Vraka", "Archon Aurelius", "Inquisitor Malakai"],
-            "traits": ["calculating", "greedy", "dutiful", "vigilant", "narcissistic", "zealot", "ambitious"],
-            "personal_goals": ["Maintain stability", "Expand treasury", "Defend boundaries", "Purge heresy", "Amass wealth"]
+            "first_names": ["Roderick", "Steelclad", "Ignis", "Vraka", "Aurelius", "Malakai", "Kaelen", "Valeria", "Garrick", "Lyra", "Sylas", "Thorne", "Zaria", "Baelor", "Dante", "Helena", "Iris", "Lucius", "Morrigan", "Oberon"],
+            "last_names": ["Ironwood", "Stonefist", "Shadowbloom", "Aetherbrand", "Stormbringer", "Grimward", "Sterling", "Holloway", "Blackwood", "Cromwell", "Frost", "Gallowglass", "Vance", "Thorne", "Ashford", "Kingsley", "Wyatt", "Blythe", "Rutherford", "Pendleton"],
+            "positive_traits": ["calculated_genius", "indomitable_will", "charismatic_leader", "brilliant_tactician", "saintly_virtue", "steel_resolve", "boundless_empathy"],
+            "negative_traits": ["craven_heart", "paranoid_fear", "greed_infected", "melancholy_curse", "bloodlust_frenzy", "hubris_blinded", "frail_constitution"],
+            "neutral_traits": ["calculating", "greedy", "dutiful", "vigilant", "narcissistic", "zealot", "ambitious", "stoic", "eccentric", "skeptical", "inquisitive", "pious", "cautious", "frugal", "traditionalist"],
+            "personal_goals": ["Maintain stability", "Expand treasury", "Defend boundaries", "Purge heresy", "Amass wealth", "Uncover lost tech", "Establish legacy"]
         }
     }
     if os.path.exists(config_path):
@@ -352,6 +355,9 @@ class FloraItemPayload(BaseModel):
     moisture_preference_min: float
     moisture_preference_max: float
     growth_rate_modifier: float
+    harvest_resource: Optional[str] = None
+    is_fatal_harvest: bool = False
+    tags: Optional[List[str]] = None
 
 class FaunaItemPayload(BaseModel):
     scientific_name: str
@@ -359,11 +365,32 @@ class FaunaItemPayload(BaseModel):
     dietary_classification: str
     base_pack_size: int
     reproduction_rate: float
+    harvest_resource: Optional[str] = None
+    is_fatal_harvest: bool = True
+    tags: Optional[List[str]] = None
 
 class FactionItemPayload(BaseModel):
     faction_name: str
     ideology_type: str
     reputation_baseline: int
+    faction_type: str = "goverments"
+    expansion_level: int = 5
+    aggression_level: int = 5
+    trade_level: int = 5
+    government_type: str = "republic"
+    tags: Optional[List[str]] = None
+    faction_trait: str = "bonus_trade"
+
+class RaceItemPayload(BaseModel):
+    race_name: str
+    genus_type: str
+    associated_faction_name: Optional[str] = None
+    temp_preference_min: float
+    temp_preference_max: float
+    moisture_preference_min: float
+    moisture_preference_max: float
+    reproduction_rate: float = 1.0
+    food_consumption_rate: float = 1.0
 
 # ============================================================================
 # API ENDPOINTS
@@ -1341,7 +1368,10 @@ async def get_registry_flora(pool: asyncpg.Pool = Depends(get_db_pool)):
                 temp_preference_max::float AS temp_preference_max, 
                 moisture_preference_min::float AS moisture_preference_min, 
                 moisture_preference_max::float AS moisture_preference_max, 
-                growth_rate_modifier::float AS growth_rate_modifier
+                growth_rate_modifier::float AS growth_rate_modifier,
+                harvest_resource,
+                is_fatal_harvest,
+                tags
             FROM registry_flora
             ORDER BY scientific_name;
             """
@@ -1357,7 +1387,7 @@ async def update_registry_flora(payload: List[FloraItemPayload], pool: asyncpg.P
             )
             embeddings = {row["scientific_name"]: row["lore_embedding"] for row in existing_rows}
             
-            await conn.execute("TRUNCATE TABLE registry_flora CASCADE")
+            await conn.execute("DELETE FROM registry_flora")
             
             for item in payload:
                 emb = embeddings.get(item.scientific_name)
@@ -1367,13 +1397,15 @@ async def update_registry_flora(payload: List[FloraItemPayload], pool: asyncpg.P
                         scientific_name, common_name, 
                         temp_preference_min, temp_preference_max, 
                         moisture_preference_min, moisture_preference_max, 
-                        growth_rate_modifier, lore_embedding
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        growth_rate_modifier, harvest_resource,
+                        is_fatal_harvest, tags, lore_embedding
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                     """,
                     item.scientific_name, item.common_name,
                     item.temp_preference_min, item.temp_preference_max,
                     item.moisture_preference_min, item.moisture_preference_max,
-                    item.growth_rate_modifier, emb
+                    item.growth_rate_modifier, item.harvest_resource,
+                    item.is_fatal_harvest, item.tags, emb
                 )
     return {"status": "success", "message": "Flora registry updated successfully."}
 
@@ -1387,7 +1419,10 @@ async def get_registry_fauna(pool: asyncpg.Pool = Depends(get_db_pool)):
                 common_name, 
                 dietary_classification, 
                 base_pack_size, 
-                reproduction_rate::float AS reproduction_rate
+                reproduction_rate::float AS reproduction_rate,
+                harvest_resource,
+                is_fatal_harvest,
+                tags
             FROM registry_fauna
             ORDER BY scientific_name;
             """
@@ -1403,7 +1438,7 @@ async def update_registry_fauna(payload: List[FaunaItemPayload], pool: asyncpg.P
             )
             embeddings = {row["scientific_name"]: row["lore_embedding"] for row in existing_rows}
             
-            await conn.execute("TRUNCATE TABLE registry_fauna CASCADE")
+            await conn.execute("DELETE FROM registry_fauna")
             
             for item in payload:
                 emb = embeddings.get(item.scientific_name)
@@ -1412,12 +1447,14 @@ async def update_registry_fauna(payload: List[FaunaItemPayload], pool: asyncpg.P
                     INSERT INTO registry_fauna (
                         scientific_name, common_name, 
                         dietary_classification, base_pack_size, 
-                        reproduction_rate, lore_embedding
-                    ) VALUES ($1, $2, $3, $4, $5, $6)
+                        reproduction_rate, harvest_resource,
+                        is_fatal_harvest, tags, lore_embedding
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     """,
                     item.scientific_name, item.common_name,
                     item.dietary_classification, item.base_pack_size,
-                    item.reproduction_rate, emb
+                    item.reproduction_rate, item.harvest_resource,
+                    item.is_fatal_harvest, item.tags, emb
                 )
     return {"status": "success", "message": "Fauna registry updated successfully."}
 
@@ -1429,7 +1466,14 @@ async def get_registry_factions(pool: asyncpg.Pool = Depends(get_db_pool)):
             SELECT 
                 faction_name, 
                 ideology_type, 
-                reputation_baseline
+                reputation_baseline::int AS reputation_baseline,
+                faction_type,
+                expansion_level::int AS expansion_level,
+                aggression_level::int AS aggression_level,
+                trade_level::int AS trade_level,
+                government_type,
+                tags,
+                faction_trait
             FROM registry_factions
             ORDER BY faction_name;
             """
@@ -1445,7 +1489,7 @@ async def update_registry_factions(payload: List[FactionItemPayload], pool: asyn
             )
             embeddings = {row["faction_name"]: row["lore_embedding"] for row in existing_rows}
             
-            await conn.execute("TRUNCATE TABLE registry_factions CASCADE")
+            await conn.execute("DELETE FROM registry_factions")
             
             for item in payload:
                 emb = embeddings.get(item.faction_name)
@@ -1453,13 +1497,69 @@ async def update_registry_factions(payload: List[FactionItemPayload], pool: asyn
                     """
                     INSERT INTO registry_factions (
                         faction_name, ideology_type, 
-                        reputation_baseline, lore_embedding
-                    ) VALUES ($1, $2, $3, $4)
+                        reputation_baseline, faction_type,
+                        expansion_level, aggression_level,
+                        trade_level, government_type,
+                        tags, faction_trait, lore_embedding
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                     """,
                     item.faction_name, item.ideology_type,
-                    item.reputation_baseline, emb
+                    item.reputation_baseline, item.faction_type,
+                    item.expansion_level, item.aggression_level,
+                    item.trade_level, item.government_type,
+                    item.tags, item.faction_trait, emb
                 )
     return {"status": "success", "message": "Faction registry updated successfully."}
+
+@app.get("/api/registry/races")
+async def get_registry_races(pool: asyncpg.Pool = Depends(get_db_pool)):
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT 
+                race_name, 
+                genus_type, 
+                associated_faction_name,
+                temp_preference_min::float AS temp_preference_min, 
+                temp_preference_max::float AS temp_preference_max, 
+                moisture_preference_min::float AS moisture_preference_min, 
+                moisture_preference_max::float AS moisture_preference_max, 
+                reproduction_rate::float AS reproduction_rate,
+                food_consumption_rate::float AS food_consumption_rate
+            FROM registry_races
+            ORDER BY race_name;
+            """
+        )
+        return [dict(row) for row in rows]
+
+@app.post("/api/registry/races")
+async def update_registry_races(payload: List[RaceItemPayload], pool: asyncpg.Pool = Depends(get_db_pool)):
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            existing_rows = await conn.fetch(
+                "SELECT race_name, lore_embedding FROM registry_races WHERE lore_embedding IS NOT NULL"
+            )
+            embeddings = {row["race_name"]: row["lore_embedding"] for row in existing_rows}
+            
+            await conn.execute("DELETE FROM registry_races")
+            
+            for item in payload:
+                emb = embeddings.get(item.race_name)
+                await conn.execute(
+                    """
+                    INSERT INTO registry_races (
+                        race_name, genus_type, associated_faction_name,
+                        temp_preference_min, temp_preference_max, 
+                        moisture_preference_min, moisture_preference_max, 
+                        reproduction_rate, food_consumption_rate, lore_embedding
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    """,
+                    item.race_name, item.genus_type, item.associated_faction_name,
+                    item.temp_preference_min, item.temp_preference_max,
+                    item.moisture_preference_min, item.moisture_preference_max,
+                    item.reproduction_rate, item.food_consumption_rate, emb
+                )
+    return {"status": "success", "message": "Races registry updated successfully."}
 
 # ============================================================================
 # WEB DASHBOARD SERVING ENDPOINTS

@@ -196,7 +196,99 @@ class EcologicalMatrixEngine:
                 migrations_executed += 1
                 
             logger.info(f"Herd migration complete. Executed {migrations_executed} migration updates.")
+
+            # --- OVERHAUL: STEP 4: SENTIENT RACE GROWTH & ADAPTATION ---
+            logger.info("Executing Step 4: Sentient Race Growth & Adaptation...")
             
+            # Query races registry
+            races_rows = await conn.fetch(
+                """
+                SELECT race_name, temp_preference_min, temp_preference_max, 
+                       moisture_preference_min, moisture_preference_max, 
+                       reproduction_rate, food_consumption_rate 
+                FROM registry_races;
+                """
+            )
+            races_map = {
+                r["race_name"]: {
+                    "temp_min": float(r["temp_preference_min"]),
+                    "temp_max": float(r["temp_preference_max"]),
+                    "moist_min": float(r["moisture_preference_min"]),
+                    "moist_max": float(r["moisture_preference_max"]),
+                    "reproduction": float(r["reproduction_rate"]),
+                    "consumption": float(r["food_consumption_rate"])
+                }
+                for r in races_rows
+            }
+            
+            # Query all settlement cells
+            settlement_cells = await conn.fetch(
+                """
+                SELECT cell_id, temperature_celsius::float AS temperature_celsius, 
+                       moisture_index::float AS moisture_index, civilization_profile
+                FROM global_simulation_cells
+                WHERE civilization_profile->>'tier' IS NOT NULL 
+                  AND civilization_profile->>'tier' != 'Wilderness';
+                """
+            )
+            
+            logger.info(f"Processing race demographics for {len(settlement_cells)} settlements...")
+            
+            for cell_row in settlement_cells:
+                cell_id = cell_row["cell_id"]
+                cell_temp = cell_row["temperature_celsius"]
+                cell_moist = cell_row["moisture_index"]
+                
+                civ_profile = json.loads(cell_row["civilization_profile"]) if isinstance(cell_row["civilization_profile"], str) else cell_row["civilization_profile"]
+                if not civ_profile:
+                    continue
+                    
+                species_dict = civ_profile.get("species")
+                if not species_dict or not isinstance(species_dict, dict):
+                    continue
+                    
+                updated_species = {}
+                total_pop = 0
+                
+                for race_name, pop_val in species_dict.items():
+                    old_pop = int(pop_val)
+                    if old_pop <= 0:
+                        continue
+                        
+                    race_info = races_map.get(race_name)
+                    if race_info:
+                        pref_temp = (race_info["temp_min"] + race_info["temp_max"]) / 2.0
+                        pref_moist = (race_info["moist_min"] + race_info["moist_max"]) / 2.0
+                        
+                        # Quadratic climate tax
+                        dist_tax = 0.05 * (((cell_temp - pref_temp) ** 2) + 100.0 * ((cell_moist - pref_moist) ** 2))
+                        dist_tax = max(0.0, min(10.0, dist_tax))
+                        
+                        # Calculate growth/decline rate
+                        growth_rate = (race_info["reproduction"] * 0.02) - (dist_tax * 0.01)
+                        new_pop = max(1, int(old_pop * (1.0 + growth_rate)))
+                    else:
+                        new_pop = old_pop
+                        
+                    updated_species[race_name] = new_pop
+                    total_pop += new_pop
+                    
+                if updated_species:
+                    civ_profile["species"] = updated_species
+                    civ_profile["population"] = total_pop
+                    
+                    # Update cell in database
+                    await conn.execute(
+                        """
+                        UPDATE global_simulation_cells
+                        SET civilization_profile = $1
+                        WHERE cell_id = $2;
+                        """,
+                        json.dumps(civ_profile), cell_id
+                    )
+            
+            logger.info("Sentient race demographics update complete.")
+
         except Exception as e:
             logger.error(f"Error running ecological cycle: {e}")
             raise e

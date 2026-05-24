@@ -135,14 +135,25 @@ def generate_paragon_agent(role: str, config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Dynamically generates a new Paragon agent with traits and goals drawn from
     the paragon_psychology_pool in config.json.
+    Allocates 1 positive, 1 negative, and 4 neutral traits, plus trauma and boon lists.
     """
     psych_pool = config.get("paragon_psychology_pool", {})
-    names = psych_pool.get("names", ["Viceroy Roderick", "Captain Steelclad", "Eldest Ignis", "General Vraka"])
-    traits = psych_pool.get("traits", ["calculating", "greedy", "dutiful", "vigilant", "narcissistic", "zealot"])
+    first_names = psych_pool.get("first_names", ["Roderick", "Steelclad", "Ignis", "Vraka", "Aurelius", "Malakai"])
+    last_names = psych_pool.get("last_names", ["Ironwood", "Stonefist", "Shadowbloom", "Aetherbrand", "Stormbringer"])
+    pos_pool = psych_pool.get("positive_traits", ["calculated_genius", "indomitable_will", "charismatic_leader"])
+    neg_pool = psych_pool.get("negative_traits", ["craven_heart", "paranoid_fear", "greed_infected"])
+    neu_pool = psych_pool.get("neutral_traits", ["calculating", "greedy", "dutiful", "vigilant"])
     goals = psych_pool.get("personal_goals", ["Maintain stability", "Expand treasury", "Defend boundaries"])
     
-    name = random.choice(names) if names else "Unnamed Paragon"
-    agent_traits = random.sample(traits, min(2, len(traits))) if traits else []
+    fn = random.choice(first_names) if first_names else "Unnamed"
+    ln = random.choice(last_names) if last_names else "Paragon"
+    name = f"{fn} {ln}"
+    
+    pos_trait = random.choice(pos_pool) if pos_pool else "determined"
+    neg_trait = random.choice(neg_pool) if neg_pool else "flawed"
+    neu_traits = random.sample(neu_pool, min(4, len(neu_pool))) if neu_pool else []
+    
+    agent_traits = [pos_trait, neg_trait] + neu_traits
     agent_goals = random.sample(goals, min(2, len(goals))) if goals else []
     
     return {
@@ -150,7 +161,9 @@ def generate_paragon_agent(role: str, config: Dict[str, Any]) -> Dict[str, Any]:
         "role": role,
         "is_criminal": False,
         "personal_goals": agent_goals,
-        "traits": agent_traits
+        "traits": agent_traits,
+        "traumas": [],
+        "boons": []
     }
 
 
@@ -222,6 +235,41 @@ class FactionLogisticsEngine:
 
         async with self.db_pool.acquire() as conn:
             async with conn.transaction():
+                # Load Faction Traits from Database
+                faction_traits_map = {}
+                rows_f = await conn.fetch("SELECT faction_name, faction_trait FROM registry_factions;")
+                for r_f in rows_f:
+                    faction_traits_map[r_f["faction_name"]] = r_f["faction_trait"]
+
+                # Load Flora Preferences from Database
+                flora_registry_map = {}
+                rows_flora = await conn.fetch("SELECT scientific_name, common_name, temp_preference_min, temp_preference_max, moisture_preference_min, moisture_preference_max, harvest_resource, is_fatal_harvest, tags FROM registry_flora;")
+                for r_fl in rows_flora:
+                    flora_registry_map[r_fl["scientific_name"]] = {
+                        "common_name": r_fl["common_name"],
+                        "temp_min": float(r_fl["temp_preference_min"]),
+                        "temp_max": float(r_fl["temp_preference_max"]),
+                        "moist_min": float(r_fl["moisture_preference_min"]),
+                        "moist_max": float(r_fl["moisture_preference_max"]),
+                        "harvest_resource": r_fl["harvest_resource"],
+                        "is_fatal_harvest": r_fl["is_fatal_harvest"],
+                        "tags": r_fl["tags"] or []
+                    }
+
+                # Load Fauna Preferences from Database
+                fauna_registry_map = {}
+                rows_fauna = await conn.fetch("SELECT scientific_name, common_name, temp_preference_min, temp_preference_max, moisture_preference_min, moisture_preference_max, harvest_resource, is_fatal_harvest, tags FROM registry_fauna;")
+                for r_fa in rows_fauna:
+                    fauna_registry_map[r_fa["scientific_name"]] = {
+                        "common_name": r_fa["common_name"],
+                        "temp_min": float(r_fa["temp_preference_min"]),
+                        "temp_max": float(r_fa["temp_preference_max"]),
+                        "moist_min": float(r_fa["moisture_preference_min"]),
+                        "moist_max": float(r_fa["moisture_preference_max"]),
+                        "harvest_resource": r_fa["harvest_resource"],
+                        "is_fatal_harvest": r_fa["is_fatal_harvest"],
+                        "tags": r_fa["tags"] or []
+                    }
                 # Fetch all aligned faction cells
                 rows = await conn.fetch(
                     """
@@ -291,6 +339,12 @@ class FactionLogisticsEngine:
                     else:
                         raw_wealth = 0.0
                         
+                    # Faction bonus_trade increases base raw wealth by 15%
+                    faction_name = profile.get("faction") or profile.get("controlling_faction_id") or "#Independent"
+                    f_trait = faction_traits_map.get(faction_name, "none")
+                    if f_trait == "bonus_trade":
+                        raw_wealth *= 1.15
+                        
                     # 2. Raw Biomass Flora Harvesting
                     flora_data = cell["flora_biomass_data"]
                     biomass = float(flora_data.get("biomass_volume", flora_data.get("biomass_index", 0.0) * 100.0))
@@ -300,6 +354,84 @@ class FactionLogisticsEngine:
                     
                     cell["temp_harvested_wealth"] = raw_wealth
                     cell["temp_harvested_biomass"] = raw_biomass
+
+                    # --- OVERHAUL: COSMIC METAL EXTRACTION ---
+                    active_tag = cell.get("active_chaos_tag") or ""
+                    tags_in_cell = [t.strip().lstrip('#').lower() for t in active_tag.split(",")]
+                    cosmic_metals_map = {
+                        "mass": "Osmium",
+                        "ordo": "Titanium",
+                        "motus": "Lead",
+                        "flux": "Gold",
+                        "vita": "Silver",
+                        "nexus": "Tungsten",
+                        "ratio": "Silicon",
+                        "anumis": "Bismuth",
+                        "lux": "Chromium",
+                        "omen": "Iridium",
+                        "aura": "Phosphorus",
+                        "lex": "Lithium"
+                    }
+                    for tag_val in tags_in_cell:
+                        power_name = tag_val.replace("epicenter_", "")
+                        if power_name in cosmic_metals_map:
+                            metal_name = cosmic_metals_map[power_name]
+                            mine_amount = 1.0
+                            if tier == "Metropolis":
+                                mine_amount = 5.0
+                            elif tier == "City":
+                                mine_amount = 4.0
+                            elif tier == "Town":
+                                mine_amount = 3.0
+                            elif tier == "Village":
+                                mine_amount = 2.0
+                            profile["treasury"][metal_name] = profile["treasury"].get(metal_name, 0.0) + mine_amount
+                            logger.info(f"Mining: Cell {cell['cell_id']} mined {mine_amount} of {metal_name} due to active chaos tag {active_tag}.")
+                            cell["is_dirty"] = True
+
+                    # --- OVERHAUL: FARMING AND SUBDUING RESOURCE HARVEST ---
+                    # Settlement profile may have a registry of "farms": [{"type": "flora"|"fauna", "species": "scientific_name", "efficiency": 1.0}]
+                    # For each farm, calculate climate distance tax quadratically:
+                    # Tax = Base * ((CellTemp - PrefTemp)^2 + 100 * (CellMoist - PrefMoist)^2)
+                    # Deduct tax from settlement wealth, produce the harvest resource.
+                    farms = profile.get("farms", [])
+                    cell_temp = float(cell.get("temperature_celsius") or 15.0)
+                    cell_moist = float(cell.get("moisture_index") or 0.5)
+                    for farm in farms:
+                        f_type = farm.get("type", "flora")
+                        sp_name = farm.get("species")
+                        efficiency = float(farm.get("efficiency", 1.0))
+                        
+                        reg_info = None
+                        if f_type == "flora":
+                            reg_info = flora_registry_map.get(sp_name)
+                        else:
+                            reg_info = fauna_registry_map.get(sp_name)
+                            
+                        if reg_info:
+                            pref_temp = (reg_info["temp_min"] + reg_info["temp_max"]) / 2.0
+                            pref_moist = (reg_info["moist_min"] + reg_info["moist_max"]) / 2.0
+                            # Quadratic climate distance tax calculation
+                            tax = 0.05 * (((cell_temp - pref_temp) ** 2) + 100.0 * ((cell_moist - pref_moist) ** 2))
+                            tax = max(0.0, min(10.0, tax)) # cap between 0 and 10
+                            
+                            # Deduct from wealth
+                            profile["treasury"]["wealth"] = max(0.0, profile["treasury"].get("wealth", 0.0) - tax)
+                            
+                            # Produce resource
+                            res_name = reg_info["harvest_resource"]
+                            if res_name:
+                                harvest_yield = 2.0 * efficiency
+                                profile["treasury"][res_name] = profile["treasury"].get(res_name, 0.0) + harvest_yield
+                                logger.info(f"Farming: Cell {cell['cell_id']} harvested {harvest_yield:.2f} {res_name} (Climate Tax paid: {tax:.2f}).")
+                                
+                            # If fatal harvest, diminish wild biomass or fauna count slightly
+                            if reg_info["is_fatal_harvest"]:
+                                if f_type == "flora":
+                                    cell["flora_biomass_data"]["biomass_volume"] = max(0.0, float(cell["flora_biomass_data"].get("biomass_volume", 0.0)) - 1.0)
+                                else:
+                                    cell["fauna_population_data"]["total_count"] = max(0, int(cell["fauna_population_data"].get("total_count", 0)) - 1)
+                            cell["is_dirty"] = True
 
                 # ----------------------------------------------------
                 # LAYER 2: TRANSIT & LOGISTICS
@@ -315,6 +447,25 @@ class FactionLogisticsEngine:
                     
                     # Run transit loss calculation
                     loss_pct, w_lost, b_lost = calculate_transit_risk(travel_types, security, raw_w, raw_b)
+
+                    # --- OVERHAUL: TEXTILES AND DOCTRINE BUFFS ---
+                    # Faction trait lower_transit_risk reduces transit risk by 20%
+                    f_trait = faction_traits_map.get(faction, "none")
+                    if f_trait == "lower_transit_risk":
+                        loss_pct *= 0.80
+                        
+                    # Textiles buff: presence of StaticWool/CactusFiber in treasury reduces transit risk loss by 10%
+                    has_textiles = False
+                    for text_item in ["StaticWool", "CactusFiber", "Textiles"]:
+                        if profile["treasury"].get(text_item, 0.0) > 0.0:
+                            has_textiles = True
+                            profile["treasury"][text_item] = max(0.0, profile["treasury"][text_item] - 0.1) # consume some
+                    if has_textiles:
+                        loss_pct *= 0.90
+                        
+                    # Recompute losses with modified risk
+                    w_lost = raw_w * loss_pct
+                    b_lost = raw_b * loss_pct
                     
                     net_w = max(0.0, raw_w - w_lost)
                     net_b = max(0.0, raw_b - b_lost)
@@ -366,9 +517,14 @@ class FactionLogisticsEngine:
                                 # Convert up to 25% of available biomass or max 2.0 biomass into refined goods
                                 avail_b = cell.get("temp_available_biomass", 0.0)
                                 to_convert = min(avail_b * 0.25, 2.0)
+                                
+                                # Faction bonus_production increases yield by 25%
+                                f_trait = faction_traits_map.get(faction, "none")
+                                production_multiplier = 1.25 if f_trait == "bonus_production" else 1.0
+                                
                                 if to_convert > 0.0:
                                     cell["temp_available_biomass"] = avail_b - to_convert
-                                    profile["treasury"][item_name] = profile["treasury"].get(item_name, 0.0) + to_convert
+                                    profile["treasury"][item_name] = profile["treasury"].get(item_name, 0.0) + (to_convert * production_multiplier)
                                     logger.info(f"Production: Cell {cell['cell_id']} converted {to_convert:.2f} biomass to {item_name}.")
                                     cell["is_dirty"] = True
 
@@ -380,12 +536,51 @@ class FactionLogisticsEngine:
                     
                     # 1. Metabolic Consumption
                     population = int(profile.get("population", 0))
-                    metabolic_need = population * 0.05
+                    faction_name = profile.get("faction") or profile.get("controlling_faction_id") or "#Independent"
+                    f_trait = faction_traits_map.get(faction_name, "none")
+                    
+                    # slower_food_consumption trait reduces consumption rate by 20%
+                    consumption_multiplier = 0.80 if f_trait == "slower_food_consumption" else 1.0
+                    metabolic_need = population * 0.05 * consumption_multiplier
                     available_b = cell["temp_available_biomass"]
                     
                     if available_b >= metabolic_need:
-                        # Growth
-                        new_pop = int(population * 1.02)
+                        # Growth base rate
+                        growth_rate = 1.04 if f_trait == "higher_growth" else 1.02
+                        
+                        # Refined Foods: +5% population growth
+                        has_refined_food = False
+                        for food_item in ["ElkMeat", "Medicine", "Refined Foods", "RefinedFoods"]:
+                            if profile["treasury"].get(food_item, 0.0) > 0.0:
+                                has_refined_food = True
+                                profile["treasury"][food_item] = max(0.0, profile["treasury"][food_item] - 0.1)
+                        if has_refined_food:
+                            growth_rate += 0.05
+                            
+                        # Smithed Metals: +15% security bonus
+                        has_smithed = False
+                        for smith_item in ["Steel", "Smithed Metals", "SmithedMetals"]:
+                            if profile["treasury"].get(smith_item, 0.0) > 0.0:
+                                has_smithed = True
+                                profile["treasury"][smith_item] = max(0.0, profile["treasury"][smith_item] - 0.1)
+                        if has_smithed:
+                            profile["security"] = min(1.0, float(profile.get("security", 0.5)) + 0.15)
+                            
+                        # Alcohols: +10% happiness but -5% security
+                        has_alcohol = False
+                        for alc_item in ["AetherElixir", "Alcohol", "Alcohols"]:
+                            if profile["treasury"].get(alc_item, 0.0) > 0.0:
+                                has_alcohol = True
+                                profile["treasury"][alc_item] = max(0.0, profile["treasury"][alc_item] - 0.1)
+                        if has_alcohol:
+                            profile["happiness"] = min(1.0, float(profile.get("happiness", 0.5)) + 0.10)
+                            profile["security"] = max(0.0, float(profile.get("security", 0.5)) - 0.05)
+                            
+                        # tougher_security: +10% security bonus
+                        if f_trait == "tougher_security":
+                            profile["security"] = min(1.0, float(profile.get("security", 0.5)) + 0.10)
+                            
+                        new_pop = int(population * growth_rate)
                         if new_pop == population and population > 0:
                             new_pop = population + 1
                         new_tier = get_tier_from_pop(new_pop)
