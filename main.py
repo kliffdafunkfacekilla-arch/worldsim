@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconn
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
+from pathlib import Path
 import asyncpg
 
 # Configure logging
@@ -1565,20 +1566,12 @@ async def update_registry_races(payload: List[RaceItemPayload], pool: asyncpg.Po
 # WEB DASHBOARD SERVING ENDPOINTS
 # ============================================================================
 
-@app.get("/dashboard", response_class=HTMLResponse)
-async def get_dashboard():
-    """
-    Serves the read-only Web Dashboard HTML interface.
-    """
-    try:
-        with open(os.path.join("static", "dashboard.html"), "r", encoding="utf-8") as f:
-            content = f.read()
-        return HTMLResponse(content=content)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Dashboard file static/dashboard.html not found.")
+# Point to the absolute directory where your static files live
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
 
-# Mount static file serving directory
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Correctly mount the static folder
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 class HandshakePayload(BaseModel):
     region_x: int
