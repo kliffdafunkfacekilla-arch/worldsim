@@ -185,18 +185,27 @@ class SimulationCanvas(Widget):
                             if cell_id in self.shared_data["cache"]:
                                 active_tag = self.shared_data["cache"][cell_id].get("active_chaos_tag")
                         
-                        # Determine biome dynamically using the parent cell (px, py)
+                        # Determine biome dynamically using the generated local tile cache
                         app = App.get_running_app()
                         elev = 500.0
                         temp = 15.0
                         moist = 0.5
-                        if app:
-                            try:
-                                elev = app.elevation_data[px][py]
-                                temp = app.temperature_data[px][py]
-                                moist = app.moisture_data[px][py]
-                            except IndexError:
-                                pass
+
+                        with self.data_lock:
+                            local_cache = self.shared_data.get("local_tile_cache")
+                            if local_cache and (logical_tile_x, logical_tile_y) in local_cache:
+                                tile_data = local_cache[(logical_tile_x, logical_tile_y)]
+                                elev = tile_data["elevation"]
+                                temp = tile_data["temperature"]
+                                moist = tile_data["moisture"]
+                            elif app:
+                                try:
+                                    # Fallback to macro block data
+                                    elev = app.elevation_data[px][py]
+                                    temp = app.temperature_data[px][py]
+                                    moist = app.moisture_data[px][py]
+                                except IndexError:
+                                    pass
                         
                         biome = app.classify_biome(elev, temp, moist) if app else "Grasslands"
                         # Use logical coordinates to provide consistent tile texture variation within the 100x100 grid
@@ -705,6 +714,31 @@ class SimulationClientApp(App):
             px, py = self.coord_engine.get_planetary_coords()
             cell_id = py * 300 + px + 1
             
+            # Fire single high-performance POST handshake as requested
+            r_handshake = requests.post(f"{SERVER_URL}/api/world/handshake", json={"region_x": px, "region_y": py}, timeout=4.0)
+
+            if r_handshake.status_code == 200:
+                handshake_data = r_handshake.json()
+                if handshake_data.get("status") == "success":
+                    macro_data = handshake_data.get("data", {})
+                    # Procedurally generate 100x100 tile array using random noise or base factors from macro variables
+                    # In a real noise algorithm, we'd use Perlin/Simplex. For this fix we are ensuring the structure exists.
+                    local_tile_cache = {}
+                    for row in range(100):
+                        for col in range(100):
+                            # Placeholder procedural values combining macro variables and cell position
+                            tile_elev = macro_data.get("elevation_meters", 0.0) + (row * 0.1) - (col * 0.1)
+                            tile_temp = macro_data.get("temperature_celsius", 15.0)
+                            tile_moist = macro_data.get("moisture_index", 0.5)
+                            local_tile_cache[(col, row)] = {
+                                "elevation": tile_elev,
+                                "temperature": tile_temp,
+                                "moisture": tile_moist
+                            }
+
+                    with self.data_lock:
+                        self.shared_data["local_tile_cache"] = local_tile_cache
+
             # Fetch System clock
             r_clock = requests.get(f"{SERVER_URL}/api/world-state", timeout=2.0)
             clock_data = r_clock.json() if r_clock.status_code == 200 else None
