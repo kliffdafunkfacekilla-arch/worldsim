@@ -180,9 +180,11 @@
             font-family: inherit;
         }
 
-        select:focus {
+        select:focus, select:focus-visible {
             border-color: var(--accent-purple);
             box-shadow: 0 0 10px rgba(168, 85, 247, 0.2);
+            outline: 2px solid var(--accent-purple);
+            outline-offset: 2px;
         }
 
         button {
@@ -202,13 +204,25 @@
             gap: 0.5rem;
         }
 
-        button:hover {
+        button:hover:not(:disabled) {
             transform: translateY(-1px);
             box-shadow: 0 6px 20px rgba(168, 85, 247, 0.45);
         }
 
-        button:active {
+        button:active:not(:disabled) {
             transform: translateY(1px);
+        }
+
+        button:focus-visible {
+            outline: 2px solid var(--accent-purple);
+            outline-offset: 2px;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            filter: grayscale(0.5);
+            box-shadow: none;
         }
 
         /* Inspector styling */
@@ -373,22 +387,23 @@
         <!-- Left Section: Map Workspace -->
         <div class="workspace">
             <div class="canvas-container">
-                <canvas id="worldMap" width="300" height="300"></canvas>
-                <div class="loading-overlay" id="loadingOverlay">
-                    <div class="spinner"></div>
+                <canvas id="worldMap" width="300" height="300" role="img" aria-label="Interactive planetary map of the Shatterlands"></canvas>
+                <div class="loading-overlay" id="loadingOverlay" aria-live="polite" aria-busy="false">
+                    <div class="spinner" role="status" aria-label="Loading map data"></div>
                 </div>
             </div>
             
             <div class="controls">
                 <div class="select-wrapper">
-                    <select id="mapFilter">
+                    <label for="mapFilter" style="display: none;">Select Map Layer</label>
+                    <select id="mapFilter" aria-label="Select map data layer">
                         <option value="Environment">Environment View</option>
                         <option value="Factions">Faction Territory</option>
                         <option value="Shadow War">Shadow War Underworld</option>
                     </select>
                 </div>
-                <button id="refreshBtn">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                <button id="refreshBtn" aria-label="Refresh Map Data">
+                    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
                     Refresh Map
                 </button>
             </div>
@@ -463,6 +478,8 @@
         async function drawMap() {
             const filter = filterSelect.value;
             loadingOverlay.classList.add("active");
+            loadingOverlay.setAttribute("aria-busy", "true");
+            refreshBtn.disabled = true;
             
             try {
                 if (filter === "Environment" || filter === "Shadow War") {
@@ -485,6 +502,8 @@
                 alert("Failed to fetch world map data. Ensure the FastAPI server is running.");
             } finally {
                 loadingOverlay.classList.remove("active");
+                loadingOverlay.setAttribute("aria-busy", "false");
+                refreshBtn.disabled = false;
             }
         }
 
