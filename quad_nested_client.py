@@ -615,22 +615,6 @@ class SimulationClientApp(App):
         
         return root_layout
 
-    def classify_biome(self, elevation, temp, moisture):
-        if elevation < -50.0:
-            return "ocean"
-        elif elevation < 0.0:
-            return "coast"
-        elif elevation > 1800.0:
-            return "mountain"
-        else:
-            if temp < 2.0:
-                return "tundra"
-            if moisture < 0.25 or (moisture < 0.5 and temp > 25.0):
-                return "desert"
-            if moisture >= 0.55:
-                return "forest"
-            return "Grasslands"
-
     def get_tile_variant(self, biome, cx, cy):
         variants = self.biome_tiles.get(biome, [])
         if not variants:
@@ -641,6 +625,8 @@ class SimulationClientApp(App):
     def trigger_server_api_handshake(self):
         """
         Asynchronously triggers a server API call to pull the new simulation block.
+        Includes a boundary cooldown debounce to prevent rapid fire execution and
+        subsequent fetches are blocked if one is already in-flight.
         """
         if self.fetch_in_progress:
             return
@@ -649,6 +635,8 @@ class SimulationClientApp(App):
             self.fetch_debounce_event.cancel()
 
         def _execute_fetch(dt, err_msg=""):
+            if self.fetch_in_progress:
+                return
             try:
                 self.fetch_in_progress = True
                 threading.Thread(target=self.fetch_server_state_thread, daemon=True).start()
