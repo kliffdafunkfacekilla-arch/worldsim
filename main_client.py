@@ -1676,7 +1676,8 @@ class PlanetaryBuilderDashboardApp(App):
                 else:
                     Clock.schedule_once(lambda dt: on_fetch_failed(dt, f"Status {r.status_code}"))
             except Exception as e:
-                Clock.schedule_once(lambda dt: on_fetch_failed(dt, str(e)))
+                err_msg = str(e)
+                Clock.schedule_once(lambda dt, msg=err_msg: on_fetch_failed(dt, msg))
                 
         threading.Thread(target=fetch_thread, daemon=True).start()
         
@@ -1722,8 +1723,9 @@ class PlanetaryBuilderDashboardApp(App):
                             save_btn.text = "Save & Sync"
                         Clock.schedule_once(handle_err)
                 except Exception as e:
-                    def handle_err(dt):
-                        popup.title = f"Sync Error: {e}"
+                    err_msg = str(e)
+                    def handle_err(dt, msg=err_msg):
+                        popup.title = f"Sync Error: {msg}"
                         save_btn.disabled = False
                         save_btn.text = "Save & Sync"
                     Clock.schedule_once(handle_err)
@@ -1866,7 +1868,8 @@ class PlanetaryBuilderDashboardApp(App):
                 else:
                     Clock.schedule_once(lambda dt: on_fetch_failed(dt, f"Status {r.status_code}"))
             except Exception as e:
-                Clock.schedule_once(lambda dt: on_fetch_failed(dt, str(e)))
+                err_msg = str(e)
+                Clock.schedule_once(lambda dt, msg=err_msg: on_fetch_failed(dt, msg))
                 
         threading.Thread(target=fetch_thread, daemon=True).start()
         
@@ -1911,8 +1914,9 @@ class PlanetaryBuilderDashboardApp(App):
                             save_btn.text = "Save & Sync"
                         Clock.schedule_once(handle_err)
                 except Exception as e:
-                    def handle_err(dt):
-                        popup.title = f"Sync Error: {e}"
+                    err_msg = str(e)
+                    def handle_err(dt, msg=err_msg):
+                        popup.title = f"Sync Error: {msg}"
                         save_btn.disabled = False
                         save_btn.text = "Save & Sync"
                     Clock.schedule_once(handle_err)
@@ -2073,7 +2077,8 @@ class PlanetaryBuilderDashboardApp(App):
                 else:
                     Clock.schedule_once(lambda dt: on_fetch_failed(dt, f"Status {r.status_code}"))
             except Exception as e:
-                Clock.schedule_once(lambda dt: on_fetch_failed(dt, str(e)))
+                err_msg = str(e)
+                Clock.schedule_once(lambda dt, msg=err_msg: on_fetch_failed(dt, msg))
                 
         threading.Thread(target=fetch_thread, daemon=True).start()
         
@@ -2119,8 +2124,9 @@ class PlanetaryBuilderDashboardApp(App):
                             save_btn.text = "Save & Sync"
                         Clock.schedule_once(handle_err)
                 except Exception as e:
-                    def handle_err(dt):
-                        popup.title = f"Sync Error: {e}"
+                    err_msg = str(e)
+                    def handle_err(dt, msg=err_msg):
+                        popup.title = f"Sync Error: {msg}"
                         save_btn.disabled = False
                         save_btn.text = "Save & Sync"
                     Clock.schedule_once(handle_err)
@@ -2264,7 +2270,8 @@ class PlanetaryBuilderDashboardApp(App):
                 else:
                     Clock.schedule_once(lambda dt: on_fetch_failed(dt, f"Status {r.status_code}"))
             except Exception as e:
-                Clock.schedule_once(lambda dt: on_fetch_failed(dt, str(e)))
+                err_msg = str(e)
+                Clock.schedule_once(lambda dt, msg=err_msg: on_fetch_failed(dt, msg))
                 
         threading.Thread(target=fetch_thread, daemon=True).start()
         
@@ -2309,8 +2316,9 @@ class PlanetaryBuilderDashboardApp(App):
                             save_btn.text = "Save & Sync"
                         Clock.schedule_once(handle_err)
                 except Exception as e:
-                    def handle_err(dt):
-                        popup.title = f"Sync Error: {e}"
+                    err_msg = str(e)
+                    def handle_err(dt, msg=err_msg):
+                        popup.title = f"Sync Error: {msg}"
                         save_btn.disabled = False
                         save_btn.text = "Save & Sync"
                     Clock.schedule_once(handle_err)
