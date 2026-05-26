@@ -1577,6 +1577,79 @@ class HandshakePayload(BaseModel):
     region_x: int
     region_y: int
 
+
+def classify_biome(elevation: float, temp: float, moisture: float) -> str:
+    if elevation < -50.0:
+        return "ocean"
+    elif elevation < 0.0:
+        return "coast"
+    elif elevation > 1800.0:
+        return "mountain"
+    else:
+        if temp < 2.0:
+            return "tundra"
+        if moisture < 0.25 or (moisture < 0.5 and temp > 25.0):
+            return "desert"
+        if moisture >= 0.55:
+            return "forest"
+        return "Grasslands"
+
+
+class StateSnapshotPayload(BaseModel):
+    px: int
+    py: int
+
+@app.post("/api/world/state-snapshot")
+async def get_state_snapshot(payload: StateSnapshotPayload, pool: asyncpg.Pool = Depends(get_db_pool)):
+    """
+    Returns a flattened JSON object (limited to 50x50 cells) centered on the player's last known coordinates.
+    """
+    px = payload.px
+    py = payload.py
+
+    # 50x50 means radius 25
+    min_x = max(0, px - 25)
+    max_x = min(299, px + 24)
+    min_y = max(0, py - 25)
+    max_y = min(299, py + 24)
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                cell_id, coord_x, coord_y, elevation_meters, temperature_celsius, moisture_index, active_chaos_tag
+            FROM global_simulation_cells
+            WHERE coord_x >= $1 AND coord_x <= $2
+              AND coord_y >= $3 AND coord_y <= $4
+            """,
+            min_x, max_x, min_y, max_y
+        )
+
+        cells_data = []
+        for r in rows:
+            elev = float(r["elevation_meters"])
+            temp = float(r["temperature_celsius"])
+            moist = float(r["moisture_index"])
+
+            cells_data.append({
+                "cell_id": r["cell_id"],
+                "coord_x": r["coord_x"],
+                "coord_y": r["coord_y"],
+                "elevation": elev,
+                "temperature": temp,
+                "moisture": moist,
+                "active_chaos_tag": r["active_chaos_tag"],
+                "biome_type": classify_biome(elev, temp, moist)
+            })
+
+        return {
+            "status": "success",
+            "center_px": px,
+            "center_py": py,
+            "cells": cells_data
+        }
+
+
 @app.post("/api/world/handshake")
 async def process_world_handshake(payload: HandshakePayload, pool: asyncpg.Pool = Depends(get_db_pool)):
     """

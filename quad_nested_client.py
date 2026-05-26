@@ -527,6 +527,8 @@ class SimulationClientApp(App):
         self.character_trauma = 0
         self.personal_chaos_exposure = 0.0
         self.mutations = []
+        self.fetch_in_progress = False
+        self.fetch_debounce_event = None
         self.max_health = 15
         self.max_stamina = 12
         self.max_composure = 11
@@ -640,8 +642,22 @@ class SimulationClientApp(App):
         """
         Asynchronously triggers a server API call to pull the new simulation block.
         """
-        print("API Handshake: Crossing region bounds. Querying simulation block...")
-        threading.Thread(target=self.fetch_server_state_thread, daemon=True).start()
+        if self.fetch_in_progress:
+            return
+
+        if self.fetch_debounce_event:
+            self.fetch_debounce_event.cancel()
+
+        def _execute_fetch(dt, err_msg=""):
+            try:
+                self.fetch_in_progress = True
+                threading.Thread(target=self.fetch_server_state_thread, daemon=True).start()
+            except Exception as e:
+                err_msg = str(e)
+                self.fetch_in_progress = False
+                print(f"Error in debounce callback: {err_msg}")
+
+        self.fetch_debounce_event = Clock.schedule_once(lambda dt: _execute_fetch(dt, ""), 0.5)
 
     def trigger_hazard_damage(self):
         """
@@ -785,6 +801,7 @@ class SimulationClientApp(App):
                 self.shared_data["connected"] = False
         finally:
             self.is_fetching = False
+            self.fetch_in_progress = False
             Clock.schedule_once(self.update_ui, 0)
 
     def _on_keyboard_down(self, window, key, scancode, codepoint, modifiers):
