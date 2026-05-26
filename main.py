@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("simulation_hub")
 
 # Retrieve database connection URI from environment
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:PigPig3897!!@localhost:5432/worldsim")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Initialize FastAPI App
 app = FastAPI(

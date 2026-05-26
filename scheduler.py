@@ -29,8 +29,12 @@ async def master_hourly_tick():
         import asyncpg
 
         # We need a db pool connection to pass to the engines if they require it.
-        DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:PigPig3897!!@localhost:5432/worldsim")
+        DATABASE_URL = os.getenv("DATABASE_URL")
+        if not DATABASE_URL:
+            logger.error("DATABASE_URL environment variable is missing. Cannot start scheduler.")
+            return
 
+        pool = None
         try:
             pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
 
@@ -52,9 +56,12 @@ async def master_hourly_tick():
             await update_shadow_war_state(pool)
 
             logger.info("All sub-engines executed successfully.")
-            await pool.close()
         except Exception as e:
             logger.error(f"Error executing sub-engines: {e}")
+        finally:
+            if pool:
+                await pool.close()
+                logger.info("Database pool safely closed.")
 
 if __name__ == "__main__":
     asyncio.run(master_hourly_tick())
