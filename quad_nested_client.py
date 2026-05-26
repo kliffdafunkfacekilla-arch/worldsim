@@ -529,6 +529,7 @@ class SimulationClientApp(App):
         self.mutations = []
         self.fetch_in_progress = False
         self.fetch_debounce_event = None
+        self.last_fetch_time = 0
         self.max_health = 15
         self.max_stamina = 12
         self.max_composure = 11
@@ -628,6 +629,10 @@ class SimulationClientApp(App):
         Includes a boundary cooldown debounce to prevent rapid fire execution and
         subsequent fetches are blocked if one is already in-flight.
         """
+        if time.time() - self.last_fetch_time < 0.5:
+            return
+        self.last_fetch_time = time.time()
+
         if self.fetch_in_progress:
             return
 

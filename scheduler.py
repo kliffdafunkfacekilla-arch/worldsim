@@ -1,3 +1,4 @@
+from narrative_quest_engine import ParagonAIDirector
 import asyncio
 import time
 import logging
@@ -9,8 +10,6 @@ import os
 from chaos_orbit_engine import update_all_chaos_resonances
 from ecology_matrix_engine import resolve_ecological_turn
 from shadow_subversion_engine import update_shadow_war_state
-from narrative_quest_engine import ParagonAIDirector
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("SimulationScheduler")
 
@@ -54,7 +53,7 @@ async def trigger_paragon_social_loop(pool):
                 # Ignored if tag is not a float (e.g., "#Epicenter")
                 pass
 
-async def master_hourly_tick():
+async def run_scheduler():
     """
     Background scheduler execution file that advances the world clock.
     Every real-world hour, advances the game world clock by exactly +6 Hours (1 Segment/Watch).
@@ -96,7 +95,9 @@ async def master_hourly_tick():
             logger.info("Running shadow_subversion_engine...")
             await update_shadow_war_state(pool)
 
+            # BEGIN SOCIAL HEARTBEAT
             await trigger_paragon_social_loop(pool)
+            # END SOCIAL HEARTBEAT
 
             logger.info("All sub-engines executed successfully.")
         except Exception as e:
@@ -107,4 +108,4 @@ async def master_hourly_tick():
                 logger.info("Database pool safely closed.")
 
 if __name__ == "__main__":
-    asyncio.run(master_hourly_tick())
+    asyncio.run(run_scheduler())
