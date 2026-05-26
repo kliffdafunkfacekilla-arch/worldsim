@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("simulation_hub")
 
 # Retrieve database connection URI from environment
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:PigPig3897!!@localhost:5432/worldsim")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Initialize FastAPI App
 app = FastAPI(
@@ -1580,6 +1580,44 @@ async def get_dashboard():
 # Mount static file serving directory
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+class HandshakePayload(BaseModel):
+    region_x: int
+    region_y: int
+
+@app.post("/api/world/handshake")
+async def process_world_handshake(payload: HandshakePayload, pool: asyncpg.Pool = Depends(get_db_pool)):
+    """
+    Called strictly on a border-cross event. Pulls pre-calculated macro variables
+    from the database for a single Region cell.
+    """
+    async with pool.acquire() as conn:
+        # A Region is represented in the DB as a coordinate on the global_simulation_cells (which maps 300x300 continent cells)
+        # Assuming payload.region_x and region_y are actually mapping to the global coord_x, coord_y for that specific tier
+        # For this simulation engine, let's query the specific cell matching the parameters.
+        # Often the client asks for specific px/py on the 300x300 grid via region vars. Let's pull those.
+        # But wait, looking at the schema, the client asks for cell_id via px/py in its original codebase: `cell_id = py * 300 + px + 1`
+        # Let's adjust this handshake to just fetch the macro variables for the coordinates provided.
+        row = await conn.fetchrow(
+            """
+            SELECT
+                elevation_meters, temperature_celsius, moisture_index, active_chaos_tag,
+                flora_biomass_data, fauna_population_data, civilization_profile, shadow_war_metrics
+            FROM global_simulation_cells
+            WHERE coord_x = $1 AND coord_y = $2
+            """,
+            payload.region_x, payload.region_y
+        )
+
+        if not row:
+            return {"status": "error", "message": "Region not found."}
+
+        return {
+            "status": "success",
+            "region_x": payload.region_x,
+            "region_y": payload.region_y,
+            "data": dict(row)
+        }
+
 @app.post("/api/narrative/trigger-ai-director")
 async def trigger_ai_director(pool: asyncpg.Pool = Depends(get_db_pool)):
     """
@@ -1654,3 +1692,7 @@ async def search_lore(payload: SearchLorePayload, pool: asyncpg.Pool = Depends(g
     except Exception as e:
         logger.error(f"Lore search failed: {e}")
         raise HTTPException(status_code=500, detail=f"Search failed: {e}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

@@ -50,7 +50,7 @@ class NestedPlanetaryCoordinateEngine:
         py = (self.Cy * 30 + self.Ry) % 300
         return px, py
 
-    def update_player_movement(self, dx, dy, trigger_handshake_callback=None):
+    def update_player_movement(self, dx, dy):
         """
         Applies player movement to Tile coords and cascades overflows/underflows up the tiers.
         If a Screen coordinate overflows/underflows (changes parent region), triggers handshake.
@@ -136,9 +136,6 @@ class NestedPlanetaryCoordinateEngine:
         self.Cy = cy
         
         # Trigger handshake if screen transition occurred
-        if screen_changed and trigger_handshake_callback:
-            trigger_handshake_callback()
-            
         return True
 
 
@@ -162,41 +159,57 @@ class SimulationCanvas(Widget):
         tile_x = self.coord_engine.Tx
         tile_y = self.coord_engine.Ty
         
-        tile_w = w / 15.0
-        tile_h = h / 11.0
+        VIEWPORT_COLUMNS = 15
+        VIEWPORT_ROWS = 11
+
+        tile_w = w / VIEWPORT_COLUMNS
+        tile_h = h / VIEWPORT_ROWS
+
+        camera_offset_x = tile_x - (VIEWPORT_COLUMNS // 2)
+        camera_offset_y = tile_y - (VIEWPORT_ROWS // 2)
         
         with self.canvas:
-            for col in range(-1, 16):
-                for row in range(-1, 12):
-                    cx = px + (col - 7)
-                    cy = py + (row - 5)
+            for row in range(VIEWPORT_ROWS):
+                for col in range(VIEWPORT_COLUMNS):
+                    logical_tile_x = camera_offset_x + col
+                    logical_tile_y = camera_offset_y + row
                     
-                    x_pos = self.x + (col - (tile_x / 100.0)) * tile_w
-                    y_pos = self.y + (row - (tile_y / 100.0)) * tile_h
+                    x_pos = self.x + col * tile_w
+                    y_pos = self.y + row * tile_h
                     
-                    if 0 <= cx < 300 and 0 <= cy < 300:
-                        cell_id = cy * 300 + cx + 1
+                    if 0 <= logical_tile_x < 100 and 0 <= logical_tile_y < 100:
+                        cell_id = py * 300 + px + 1
                         
                         active_tag = None
                         with self.data_lock:
                             if cell_id in self.shared_data["cache"]:
                                 active_tag = self.shared_data["cache"][cell_id].get("active_chaos_tag")
                         
-                        # Determine biome dynamically
+                        # Determine biome dynamically using the generated local tile cache
                         app = App.get_running_app()
                         elev = 500.0
                         temp = 15.0
                         moist = 0.5
-                        if app:
-                            try:
-                                elev = app.elevation_data[cx][cy]
-                                temp = app.temperature_data[cx][cy]
-                                moist = app.moisture_data[cx][cy]
-                            except IndexError:
-                                pass
+
+                        with self.data_lock:
+                            local_cache = self.shared_data.get("local_tile_cache")
+                            if local_cache and (logical_tile_x, logical_tile_y) in local_cache:
+                                tile_data = local_cache[(logical_tile_x, logical_tile_y)]
+                                elev = tile_data["elevation"]
+                                temp = tile_data["temperature"]
+                                moist = tile_data["moisture"]
+                            elif app:
+                                try:
+                                    # Fallback to macro block data
+                                    elev = app.elevation_data[px][py]
+                                    temp = app.temperature_data[px][py]
+                                    moist = app.moisture_data[px][py]
+                                except IndexError:
+                                    pass
                         
                         biome = app.classify_biome(elev, temp, moist) if app else "Grasslands"
-                        tile_image = app.get_tile_variant(biome, cx, cy) if app else None
+                        # Use logical coordinates to provide consistent tile texture variation within the 100x100 grid
+                        tile_image = app.get_tile_variant(biome, logical_tile_x, logical_tile_y) if app else None
                         
                         if active_tag and any(tag in active_tag for tag in ["#Mass", "#Flux", "#Omen", "#Epicenter", "#Vita"]):
                             # Shift the color tint on existing tiles to a purple, pink, or red color
@@ -233,8 +246,8 @@ class SimulationCanvas(Widget):
                         Color(0.05, 0.05, 0.08, 1.0)
                         Rectangle(pos=(x_pos + 1, y_pos + 1), size=(tile_w - 2, tile_h - 2))
             
-            gold_x = self.x + 7.5 * tile_w
-            gold_y = self.y + 5.5 * tile_h
+            gold_x = self.x + (VIEWPORT_COLUMNS // 2) * tile_w
+            gold_y = self.y + (VIEWPORT_ROWS // 2) * tile_h
             
             # Player coordinate indicator rendered last (highest Z-index) using player_sprite.png
             Color(1.0, 1.0, 1.0, 1.0)
@@ -595,7 +608,7 @@ class SimulationClientApp(App):
         
         threading.Thread(target=self.download_crust_mesh, daemon=True).start()
         Window.bind(on_key_down=self._on_keyboard_down)
-        Clock.schedule_interval(self.heartbeat_tick, 0.5)
+        self.trigger_server_api_handshake()
         Clock.schedule_interval(self.update_ui, 1.0 / 60.0)
         
         return root_layout
@@ -696,17 +709,36 @@ class SimulationClientApp(App):
         except Exception as e:
             print(f"Warning: Failed to fetch crust mesh: {e}. Defaulting to flat terrain.")
 
-    def heartbeat_tick(self, dt):
-        if self.is_fetching:
-            return
-        self.is_fetching = True
-        threading.Thread(target=self.fetch_server_state_thread, daemon=True).start()
-
     def fetch_server_state_thread(self):
         try:
             px, py = self.coord_engine.get_planetary_coords()
             cell_id = py * 300 + px + 1
             
+            # Fire single high-performance POST handshake as requested
+            r_handshake = requests.post(f"{SERVER_URL}/api/world/handshake", json={"region_x": px, "region_y": py}, timeout=4.0)
+
+            if r_handshake.status_code == 200:
+                handshake_data = r_handshake.json()
+                if handshake_data.get("status") == "success":
+                    macro_data = handshake_data.get("data", {})
+                    # Procedurally generate 100x100 tile array using random noise or base factors from macro variables
+                    # In a real noise algorithm, we'd use Perlin/Simplex. For this fix we are ensuring the structure exists.
+                    local_tile_cache = {}
+                    for row in range(100):
+                        for col in range(100):
+                            # Placeholder procedural values combining macro variables and cell position
+                            tile_elev = macro_data.get("elevation_meters", 0.0) + (row * 0.1) - (col * 0.1)
+                            tile_temp = macro_data.get("temperature_celsius", 15.0)
+                            tile_moist = macro_data.get("moisture_index", 0.5)
+                            local_tile_cache[(col, row)] = {
+                                "elevation": tile_elev,
+                                "temperature": tile_temp,
+                                "moisture": tile_moist
+                            }
+
+                    with self.data_lock:
+                        self.shared_data["local_tile_cache"] = local_tile_cache
+
             # Fetch System clock
             r_clock = requests.get(f"{SERVER_URL}/api/world-state", timeout=2.0)
             clock_data = r_clock.json() if r_clock.status_code == 200 else None
@@ -753,6 +785,7 @@ class SimulationClientApp(App):
                 self.shared_data["connected"] = False
         finally:
             self.is_fetching = False
+            Clock.schedule_once(self.update_ui, 0)
 
     def _on_keyboard_down(self, window, key, scancode, codepoint, modifiers):
         dx, dy = 0, 0
@@ -768,13 +801,14 @@ class SimulationClientApp(App):
             return True
             
         if dx != 0 or dy != 0:
-            moved = self.coord_engine.update_player_movement(
-                dx, dy,
-                trigger_handshake_callback=self.trigger_server_api_handshake
-            )
-            if moved:
-                self.canvas_widget.redraw()
-                self.hud_widget.update_hud()
+            old_screen_x = self.coord_engine.Sx
+            old_screen_y = self.coord_engine.Sy
+
+            self.coord_engine.update_player_movement(dx, dy)
+
+            if self.coord_engine.Sx != old_screen_x or self.coord_engine.Sy != old_screen_y:
+                print(f"[*] Crossed over into screen boundary ({self.coord_engine.Sx}, {self.coord_engine.Sy}). Querying new chunk array info...")
+                self.trigger_server_api_handshake()
         return True
 
     def update_ui(self, dt):
