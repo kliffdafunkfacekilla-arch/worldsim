@@ -221,6 +221,27 @@ class DynamicNarrativeEngine:
             f"Ultimately, your journey culminates in a final confrontation: '{climax_obj['climax']}'."
         )
 
+        # Check for recent Paragon actions to integrate into the narrative hook
+        recent_saga = await conn.fetchrow(
+            """
+            SELECT event_type, context_payload
+            FROM player_saga_stack
+            WHERE target_cell_id = $1 AND event_type = 'Paragon Dilemma Choice'
+            ORDER BY recorded_at DESC LIMIT 1;
+            """,
+            cell_id
+        )
+
+        if recent_saga:
+            payload = recent_saga["context_payload"]
+            if isinstance(payload, str):
+                import json
+                payload = json.loads(payload)
+            action_desc = payload.get("summary", "")
+            if action_desc:
+                fluid_structure += f" This is deeply connected to the recent regional choice: '{action_desc}'."
+
+
         quest_result = {
             "quest_id": quest_id,
             "title": quest_title,
@@ -594,6 +615,27 @@ Do not write any text outside of the JSON block."""
                 )
                 
         logger.info(f"ParagonAIDirector: Crisis resolved and lore ledger written for cell {cell_id}.")
+
+    def generate_dilemma(self, cell_id: int, active_chaos_tag: str, civ_profile: dict) -> dict:
+        """
+        Generates a Paragon social dilemma based on the cell's current lore and faction tension.
+        Returns a dictionary representing the choice to be inserted into the saga stack.
+        """
+        # Create a dummy Paragon
+        paragon = {
+            "name": "Local Paragon",
+            "role": "Leader",
+            "traits": ["dutiful", "calculating"],
+            "personal_goals": ["maintain stability"],
+            "trauma_index": 0,
+            "affiliations": [civ_profile.get("controlling_faction_id", "#Independent")]
+        }
+
+        story_seed = f"The presence of {active_chaos_tag} is causing tension among the populace."
+
+        # Use the deterministic fallback generator for robust synchronous operation
+        result = self.fallback_roleplay_generator(paragon, story_seed)
+        return result
 
     def fallback_roleplay_generator(self, paragon: dict, story_seed: str) -> dict:
         """
