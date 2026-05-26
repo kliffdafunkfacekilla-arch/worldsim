@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shatterlands - Macro Web Dashboard</title>
+    <!-- Modern Outfits & Inter Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #09090b;
+            --bg-card: rgba(20, 20, 25, 0.65);
+            --border-glow: rgba(168, 85, 247, 0.4);
+            --accent-purple: #a855f7;
+            --accent-cyan: #06b6d4;
+            --accent-orange: #f97316;
+            --accent-green: #10b981;
+            --text-light: #f4f4f5;
+            --text-muted: #a1a1aa;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            background-image:
+                radial-gradient(circle at 10% 20%, rgba(168, 85, 247, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(6, 118, 212, 0.08) 0%, transparent 40%);
+        }
+
+        header {
+            background: rgba(15, 15, 20, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 1.2rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            font-size: 1.8rem;
+            background: linear-gradient(135deg, var(--text-light) 30%, var(--accent-purple) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        h1::before {
+            content: '';
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            background: var(--accent-purple);
+            border-radius: 50%;
+            box-shadow: 0 0 12px var(--accent-purple);
+        }
+
+        .header-meta {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .header-meta span {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .header-meta strong {
+            color: var(--accent-cyan);
+        }
+
+        main {
+            flex: 1;
+            display: flex;
+            padding: 2rem;
+            gap: 2rem;
+            max-width: 1400px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        /* Dashboard Columns */
+        .workspace {
+            flex: 1.2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .inspector {
+            flex: 0.8;
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            height: fit-content;
+            min-height: 500px;
+        }
+
+        /* Canvas Wrapper & Controls */
+        .canvas-container {
+            position: relative;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 8px;
+            box-shadow: 0 0 25px rgba(0, 0, 0, 0.6);
+            transition: border-color 0.3s;
+        }
+
+        .canvas-container:hover {
+            border-color: rgba(168, 85, 247, 0.25);
+        }
+
+        #worldMap {
+            background-color: #040406;
+            display: block;
+            image-rendering: pixelated;
+            cursor: crosshair;
+            width: 450px;
+            height: 450px;
+            border-radius: 6px;
+        }
+
+        .controls {
+            display: flex;
+            width: 100%;
+            max-width: 450px;
+            gap: 1rem;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .select-wrapper {
+            position: relative;
+            flex: 1;
+        }
+
+        select {
+            width: 100%;
+            background: rgba(30, 30, 40, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-light);
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            outline: none;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        select:focus, select:focus-visible {
+            border-color: var(--accent-purple);
+            box-shadow: 0 0 10px rgba(168, 85, 247, 0.2);
+            outline: 2px solid var(--accent-purple);
+            outline-offset: 2px;
+        }
+
+        button {
+            background: linear-gradient(135deg, var(--accent-purple) 0%, #7e22ce 100%);
+            border: none;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 15px rgba(168, 85, 247, 0.3);
+            font-family: inherit;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(168, 85, 247, 0.45);
+        }
+
+        button:active:not(:disabled) {
+            transform: translateY(1px);
+        }
+
+        button:focus-visible {
+            outline: 2px solid var(--accent-purple);
+            outline-offset: 2px;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            filter: grayscale(0.5);
+            box-shadow: none;
+        }
+
+        /* Inspector styling */
+        .inspector-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.4rem;
+            font-weight: 600;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 0.75rem;
+            color: var(--accent-cyan);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .inspector-empty {
+            color: var(--text-muted);
+            text-align: center;
+            margin: auto 0;
+            font-style: italic;
+        }
+
+        .data-card {
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 8px;
+            padding: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .data-header {
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 0.2rem;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .data-item {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+        }
+
+        .data-value {
+            font-weight: 500;
+            color: var(--text-light);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-purple { background: rgba(168, 85, 247, 0.2); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.3); }
+        .badge-cyan { background: rgba(6, 180, 212, 0.2); color: #67e8f9; border: 1px solid rgba(6, 180, 212, 0.3); }
+        .badge-green { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.3); }
+        .badge-red { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.3); }
+
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(9, 9, 11, 0.75);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-radius: 12px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            z-index: 5;
+        }
+
+        .loading-overlay.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(168, 85, 247, 0.1);
+            border-top-color: var(--accent-purple);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            box-shadow: 0 0 10px rgba(168, 85, 247, 0.2);
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Map Legend bar */
+        .legend {
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.5rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            max-width: 450px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+
+        /* Custom Scrollbar for side panel */
+        .inspector-content {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            overflow-y: auto;
+            max-height: 580px;
+            padding-right: 5px;
+        }
+
+        .inspector-content::-webkit-scrollbar {
+            width: 5px;
+        }
+        .inspector-content::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.02);
+        }
+        .inspector-content::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Shatterlands</h1>
+        <div class="header-meta">
+            <span>Clock: <strong id="clockLabel">Loading...</strong></span>
+            <span>Connection: <strong style="color: var(--accent-green)">ONLINE</strong></span>
+        </div>
+    </header>
+
+    <main>
+        <!-- Left Section: Map Workspace -->
+        <div class="workspace">
+            <div class="canvas-container">
+                <canvas id="worldMap" width="300" height="300" role="img" aria-label="Interactive planetary map of the Shatterlands"></canvas>
+                <div class="loading-overlay" id="loadingOverlay" aria-live="polite" aria-busy="false">
+                    <div class="spinner" role="status" aria-label="Loading map data"></div>
+                </div>
+            </div>
+
+            <div class="controls">
+                <div class="select-wrapper">
+                    <label for="mapFilter" style="display: none;">Select Map Layer</label>
+
+                    <select id="factionFilter" aria-label="Select faction">
+                        <option value="none">Select Faction</option>
+                        <!-- To be populated dynamically -->
+                    </select>
+
+                </div>
+                <button id="refreshBtn" aria-label="Refresh Map Data">
+                    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                    Refresh Map
+                </button>
+            </div>
+
+            <!-- Dynamic Legend representation -->
+            <div class="legend" id="legendContainer">
+                <!-- Loaded dynamically by active filter -->
+            </div>
+        </div>
+
+        <!-- Right Section: Details Panel Inspector -->
+        <div class="inspector">
+            <div class="inspector-title">
+                <span>Cell Inspector</span>
+                <span id="coordBadge" style="font-size: 0.8rem; font-family: monospace; color: var(--text-muted)">Click a cell...</span>
+            </div>
+            <div class="inspector-content" id="sidePanel">
+                <div class="inspector-empty">
+                    Click anywhere on the planetary grid viewport to inspect local crust, flora, fauna, faction, and underworld metrics.
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const canvas = document.getElementById("worldMap");
+        const ctx = canvas.getContext("2d");
+        const filterSelect = document.getElementById("factionFilter");
+        const refreshBtn = document.getElementById("refreshBtn");
+        const loadingOverlay = document.getElementById("loadingOverlay");
+        const sidePanel = document.getElementById("sidePanel");
+        const coordBadge = document.getElementById("coordBadge");
+        const clockLabel = document.getElementById("clockLabel");
+        const legendContainer = document.getElementById("legendContainer");
+
+        // Cache map details
+        let cachedCrust = null;
+        let cachedFactions = null;
+
+
+        // Fetch factions and populate
+        async function loadFactions() {
+            try {
+                const r = await fetch("/api/world-map/geopolitical-mesh");
+                if (!r.ok) return;
+                const data = await r.json();
+
+                const factions = new Set();
+                data.forEach(cell => {
+                    if (cell.faction_alignment && cell.faction_alignment !== "#Independent" && cell.faction_alignment !== "Independent") {
+                        factions.add(cell.faction_alignment);
+                    }
+                });
+
+                const select = document.getElementById("factionFilter");
+                factions.forEach(faction => {
+                    const option = document.createElement("option");
+                    option.value = faction;
+                    option.textContent = faction;
+                    select.appendChild(option);
+                });
+            } catch (err) {
+                console.error("Failed to load factions", err);
+            }
+        }
+        document.addEventListener("DOMContentLoaded", () => {
+            loadFactions();
+        });
+
+        // On load
+        window.addEventListener("DOMContentLoaded", () => {
+            fetchClock();
+            drawMap();
+
+            refreshBtn.addEventListener("click", () => {
+                // Clear cache on refresh click
+                cachedCrust = null;
+                cachedFactions = null;
+                drawMap();
+            });
+
+            filterSelect.addEventListener("change", () => {
+                renderMapFromCache();
+            });
+
+            canvas.addEventListener("click", handleCanvasClick);
+        });
+
+        async function fetchClock() {
+            try {
+                const r = await fetch("/api/world-state");
+                if (r.ok) {
+                    const data = await r.json();
+                    clockLabel.textContent = `Year ${data.current_year}, Day ${data.current_day}, Segment ${data.current_segment}`;
+                }
+            } catch (e) {
+                console.error("Failed to fetch clock:", e);
+                clockLabel.textContent = "Offline";
+            }
+        }
+
+        async function drawMap() {
+            const filter = filterSelect.value;
+            loadingOverlay.classList.add("active");
+            loadingOverlay.setAttribute("aria-busy", "true");
+            refreshBtn.disabled = true;
+
+            try {
+                if (filter === "Environment" || filter === "Shadow War") {
+                    if (!cachedCrust) {
+                        const r = await fetch("/api/world-map/crust-mesh");
+                        if (!r.ok) throw new Error("Crust fetch failed");
+                        cachedCrust = await r.json();
+                    }
+                } else if (filter === "Factions") {
+                    if (!cachedFactions) {
+                        const r = await fetch("/api/world-map/geopolitical-mesh");
+                        if (!r.ok) throw new Error("Geopolitical fetch failed");
+                        cachedFactions = await r.json();
+                    }
+                }
+                renderMapFromCache();
+                fetchClock();
+            } catch (e) {
+                console.error("Error drawing map:", e);
+                alert("Failed to fetch world map data. Ensure the FastAPI server is running.");
+            } finally {
+                loadingOverlay.classList.remove("active");
+                loadingOverlay.setAttribute("aria-busy", "false");
+                refreshBtn.disabled = false;
+            }
+        }
+
+        function renderMapFromCache() {
+            const filter = filterSelect.value;
+            updateLegend(filter);
+
+            ctx.clearRect(0, 0, 300, 300);
+
+            if (filter === "Environment" && cachedCrust) {
+                for (const cell of cachedCrust) {
+                    const x = cell.coord_x;
+                    const y = 299 - cell.coord_y; // Flip Y for database matching
+
+                    const elev = cell.elevation_meters;
+                    const temp = cell.temperature_celsius;
+                    const moist = cell.moisture_index;
+
+                    ctx.fillStyle = getEnvironmentColor(elev, temp, moist);
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+            else if (filter === "Shadow War" && cachedCrust) {
+                for (const cell of cachedCrust) {
+                    const x = cell.coord_x;
+                    const y = 299 - cell.coord_y;
+
+                    const cultIndex = cell.cult_index || 0.0;
+                    ctx.fillStyle = getShadowWarColor(cultIndex);
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+            else if (filter === "Factions" && cachedFactions) {
+                // Pre-draw environment base as background
+                ctx.fillStyle = "#111116";
+                ctx.fillRect(0, 0, 300, 300);
+
+                for (const cell of cachedFactions) {
+                    const x = cell.coord_x;
+                    const y = 299 - cell.coord_y;
+                    const faction = cell.faction_alignment;
+
+                    ctx.fillStyle = getFactionColor(faction);
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+        }
+
+        // Color coding utilities
+        function getEnvironmentColor(elev, temp, moist) {
+            if (elev < -50.0) return "#194ccc"; // Deep Ocean
+            if (elev < 0.0) return "#337fe6";   // Coastal Ocean/Coastline
+            if (elev > 1800.0) return "#7f7f7f"; // Mountain peaks
+
+            if (temp < 2.0) return "#d9d9e6";     // Tundra
+            if (moist < 0.25 || (moist < 0.5 && temp > 25.0)) return "#d9bf73"; // Desert
+            if (moist >= 0.55) return "#0d660d";   // Forest
+            return "#268c26";                     // Grasslands/Plains
+        }
+
+        function getShadowWarColor(cultIndex) {
+            // Neon red heat map representation
+            if (cultIndex <= 0.05) return "#121217"; // virtually stable
+            // Interpolate color from dark charcoal red to neon red
+            const intensity = Math.floor(25 + cultIndex * 230);
+            const green = Math.floor((1 - cultIndex) * 20);
+            const blue = Math.floor((1 - cultIndex) * 40);
+            return `rgb(${intensity}, ${green}, ${blue})`;
+        }
+
+        const factionColorCache = {};
+        function getFactionColor(faction) {
+            if (!faction || faction === "#Independent" || faction === "Independent") {
+                return "#1e1e24"; // Independent wilderness
+            }
+            if (factionColorCache[faction]) {
+                return factionColorCache[faction];
+            }
+            // Dynamic color hashing based on faction name string
+            let hash = 0;
+            for (let i = 0; i < faction.length; i++) {
+                hash = faction.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const h = Math.abs(hash % 360);
+            // Curate saturation & lightness for premium dashboard looks
+            const color = `hsl(${h}, 75%, 45%)`;
+            factionColorCache[faction] = color;
+            return color;
+        }
+
+        function updateLegend(filter) {
+            legendContainer.innerHTML = "";
+            let html = "";
+            if (filter === "Environment") {
+                html = `
+                    <div class="legend-item"><div class="legend-color" style="background:#194ccc"></div>Ocean</div>
+                    <div class="legend-item"><div class="legend-color" style="background:#337fe6"></div>Coast</div>
+                    <div class="legend-item"><div class="legend-color" style="background:#7f7f7f"></div>Mountain</div>
+                    <div class="legend-item"><div class="legend-color" style="background:#d9d9e6"></div>Tundra</div>
+                    <div class="legend-item"><div class="legend-color" style="background:#d9bf73"></div>Desert</div>
+                    <div class="legend-item"><div class="legend-color" style="background:#0d660d"></div>Forest</div>
+                    <div class="legend-item"><div class="legend-color" style="background:#268c26"></div>Grasslands</div>
+                `;
+            } else if (filter === "Shadow War") {
+                html = `
+                    <div class="legend-item"><div class="legend-color" style="background:#121217"></div>Stable Reality</div>
+                    <div class="legend-item"><div class="legend-color" style="background:#771020"></div>Weak Seams</div>
+                    <div class="legend-item"><div class="legend-color" style="background:#ff3333"></div>Cult Infiltration</div>
+                `;
+            } else if (filter === "Factions") {
+                html = `
+                    <div class="legend-item"><div class="legend-color" style="background:#1e1e24"></div>Wilderness</div>
+                    <div class="legend-item"><em>* Colorful clusters denote sovereign territories</em></div>
+                `;
+            }
+            legendContainer.innerHTML = html;
+        }
+
+        // Side Panel Inspector Click Handler
+        async function handleCanvasClick(e) {
+            const rect = canvas.getBoundingClientRect();
+            // Calculate exact pixel position on the 300x300 canvas coordinate space
+            const x = Math.floor((e.clientX - rect.left) / rect.width * 300);
+            const canvasY = Math.floor((e.clientY - rect.top) / rect.height * 300);
+
+            // Translate screen canvas click coordinate y back to database y
+            const db_y = 299 - canvasY;
+
+            if (x < 0 || x >= 300 || db_y < 0 || db_y >= 300) return;
+
+            const cell_id = (db_y * 300) + x + 1;
+            coordBadge.textContent = `CELL #${cell_id} @ (${x}, ${db_y})`;
+
+            sidePanel.innerHTML = `
+                <div style="display:flex; justify-content:center; align-items:center; height:150px">
+                    <div class="spinner"></div>
+                </div>
+            `;
+
+            try {
+                const r = await fetch(`/api/cell/${cell_id}`);
+                if (!r.ok) throw new Error("Failed to load cell detail");
+                const cell = await r.json();
+
+                // Classify Biome
+                const biome = getEnvironmentColor(cell.elevation_meters, cell.temperature_celsius, cell.moisture_index);
+                const biomeName = getBiomeName(cell.elevation_meters, cell.temperature_celsius, cell.moisture_index);
+
+                // Parse details JSON
+                const flora = cell.flora_biomass_data || {};
+                const fauna = cell.fauna_population_data || {};
+                const civ = cell.civilization_profile || {};
+                const shadow = cell.shadow_war_metrics || {};
+
+                const floraHtml = flora.dominant_species
+                    ? `Species: <strong>${flora.dominant_species}</strong><br>Biomass Index: <strong>${(flora.biomass_index || 0).toFixed(2)}</strong><br>Stage: <strong>${flora.growth_stage || 'dormant'}</strong>`
+                    : "No dominant flora species.";
+
+                let faunaList = "No fauna populations.";
+                if (fauna.populations && fauna.populations.length > 0) {
+                    faunaList = fauna.populations.map(p => `• ${p.species}: density <strong>${(p.density || 0).toFixed(2)}</strong>`).join("<br>");
+                }
+
+                const factionName = civ.faction || civ.controlling_faction_id || "#Independent";
+                const devIndex = (civ.development_index || 0).toFixed(2);
+                const hasSettlement = civ.has_settlement ? "Yes" : "No";
+
+                const cultIndex = shadow.cult_infiltration_index || shadow.subversion || 0.0;
+                const wardenPresence = shadow.warden_presence || shadow.infiltration || 0.0;
+                const unrest = shadow.unrest || 0.0;
+                const corruption = shadow.corruption || 0.0;
+
+                const chaosBadge = cell.active_chaos_tag
+                    ? `<span class="badge badge-red">${cell.active_chaos_tag}</span>`
+                    : `<span class="badge badge-green">Stable Reality</span>`;
+
+                sidePanel.innerHTML = `
+                    <div class="data-card">
+                        <div class="data-header">Geographics</div>
+                        <div class="data-item"><span>Elevation:</span><span class="data-value">${cell.elevation_meters.toFixed(1)} m</span></div>
+                        <div class="data-item"><span>Temperature:</span><span class="data-value">${cell.temperature_celsius.toFixed(1)}°C</span></div>
+                        <div class="data-item"><span>Moisture:</span><span class="data-value">${cell.moisture_index.toFixed(3)}</span></div>
+                        <div class="data-item"><span>Biome:</span><span class="data-value" style="text-transform: capitalize">${biomeName}</span></div>
+                    </div>
+
+                    <div class="data-card">
+                        <div class="data-header">Cosmology</div>
+                        <div class="data-item"><span>Reality State:</span><span>${chaosBadge}</span></div>
+                    </div>
+
+                    <div class="data-card">
+                        <div class="data-header">Ecology</div>
+                        <div style="font-size: 0.85rem; line-height: 1.4; color: var(--text-muted)">
+                            <div style="margin-bottom: 0.5rem">
+                                <strong style="color:var(--text-light)">Flora Biomass</strong><br>
+                                ${floraHtml}
+                            </div>
+                            <div>
+                                <strong style="color:var(--text-light)">Fauna Populations</strong><br>
+                                ${faunaList}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="data-card">
+                        <div class="data-header">Civilization</div>
+                        <div class="data-item"><span>Alignment:</span><span class="data-value" style="color: var(--accent-cyan)">${factionName}</span></div>
+                        <div class="data-item"><span>Development:</span><span class="data-value">${devIndex}</span></div>
+                        <div class="data-item"><span>Settlement:</span><span class="data-value">${hasSettlement}</span></div>
+                    </div>
+
+                    <div class="data-card">
+                        <div class="data-header">Underworld Metrics</div>
+                        <div class="data-item"><span>Cult Infiltration:</span><span class="data-value" style="${cultIndex > 0.5 ? 'color:#f87171' : ''}">${cultIndex.toFixed(2)}</span></div>
+                        <div class="data-item"><span>Warden Presence:</span><span class="data-value">${wardenPresence.toFixed(2)}</span></div>
+                        <div class="data-item"><span>Unrest Fervor:</span><span class="data-value">${unrest.toFixed(2)}</span></div>
+                        <div class="data-item"><span>Corruption Level:</span><span class="data-value">${corruption.toFixed(2)}</span></div>
+                    </div>
+                `;
+            } catch (e) {
+                console.error("Inspector error:", e);
+                sidePanel.innerHTML = `<div style="color: #f87171; text-align:center; padding: 2rem">Failed to retrieve details for cell ${cell_id}.</div>`;
+            }
+        }
+
+        function getBiomeName(elev, temp, moist) {
+            if (elev < -50.0) return "Deep Ocean";
+            if (elev < 0.0) return "Coastline";
+            if (elev > 1800.0) return "Mountain Peak";
+
+            if (temp < 2.0) return "Cold Tundra";
+            if (moist < 0.25 || (moist < 0.5 && temp > 25.0)) return "Arid Desert";
+            if (moist >= 0.55) return "Dense Forest";
+            return "Grasslands";
+        }
+    </script>
+</body>
+</html>
